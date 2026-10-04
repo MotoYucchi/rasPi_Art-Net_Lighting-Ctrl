@@ -2,7 +2,7 @@
 <Fixture>
   <Information>
     <Manufacturer>PixelNode</Manufacturer>
-    <Model>WS2811 Strip Node</Model>
+    <Model>WS2811 Strip Node (Pro 24-Pattern)</Model>
     <Author>motoyucchi</Author>
     <Version>1.0</Version>
     <Type>Color Changer</Type>
@@ -27,21 +27,59 @@
       <Range Min="0" Max="255" Name="White 0-100%"/>
     </Channel>
     <Channel Index="6" Name="Pattern" Type="Effect">
-      <Range Min="0" Max="0" Name="Static"/>
-      <Range Min="1" Max="63" Name="Chase"/>
-      <Range Min="64" Max="127" Name="Sine Wave"/>
-      <Range Min="128" Max="191" Name="Rainbow"/>
-      <Range Min="192" Max="255" Name="Dynamic FX"/>
+      <Range Min="0" Max="7" Name="Static"/>
+      <Range Min="8" Max="15" Name="Single Chase"/>
+      <Range Min="16" Max="23" Name="Dual Meteor"/>
+      <Range Min="24" Max="31" Name="Gravity Bounce"/>
+      <Range Min="32" Max="39" Name="Newton's Cradle"/>
+      <Range Min="40" Max="47" Name="Liquid Ripple"/>
+      <Range Min="48" Max="55" Name="Plasma Flow"/>
+      <Range Min="56" Max="63" Name="Sand Cascade"/>
+      <Range Min="64" Max="71" Name="Sine Breath"/>
+      <Range Min="72" Max="79" Name="Heartbeat Pulse"/>
+      <Range Min="80" Max="87" Name="Campfire Flicker"/>
+      <Range Min="88" Max="95" Name="Aurora Curtain"/>
+      <Range Min="96" Max="103" Name="Electric Arc"/>
+      <Range Min="104" Max="111" Name="Firefly Swarm"/>
+      <Range Min="112" Max="119" Name="Neural Synapse"/>
+      <Range Min="120" Max="127" Name="Jellyfish"/>
+      <Range Min="128" Max="135" Name="Rainbow Flow"/>
+      <Range Min="136" Max="143" Name="Knight Rider"/>
+      <Range Min="144" Max="151" Name="Center Wipe"/>
+      <Range Min="152" Max="159" Name="Strobe Matrix"/>
+      <Range Min="160" Max="167" Name="Diamond Sparkle"/>
+      <Range Min="168" Max="175" Name="Sawtooth Run"/>
+      <Range Min="176" Max="183" Name="Matrix Rain"/>
+      <Range Min="184" Max="191" Name="Moire Grid"/>
+      <Range Min="192" Max="255" Name="Reserved / Static"/>
     </Channel>
     <Channel Index="7" Name="Audio Sync" Type="Effect">
-      <Range Min="0" Max="0" Name="Off (Ch6 Pattern)"/>
-      <Range Min="1" Max="31" Name="Master Pulse (RMS)"/>
-      <Range Min="32" Max="63" Name="Kick Pump (Flash)"/>
-      <Range Min="64" Max="95" Name="Bass Wave"/>
-      <Range Min="96" Max="127" Name="Beat Step"/>
-      <Range Min="128" Max="159" Name="Tempo BPM Sync"/>
-      <Range Min="160" Max="191" Name="Snare Flash"/>
-      <Range Min="192" Max="255" Name="Spectrum VU"/>
+      <Range Min="0" Max="7" Name="Off (Ch6 Pattern)"/>
+      <Range Min="8" Max="15" Name="Master Pulse"/>
+      <Range Min="16" Max="23" Name="Kick Pump Flash"/>
+      <Range Min="24" Max="31" Name="Snare Snap Flash"/>
+      <Range Min="32" Max="39" Name="Hi-Hat Glitter"/>
+      <Range Min="40" Max="47" Name="Drum Kit 3-Way"/>
+      <Range Min="48" Max="55" Name="Shockwave Blast"/>
+      <Range Min="56" Max="63" Name="Beat Step Walk"/>
+      <Range Min="64" Max="71" Name="Beat Invert Strobe"/>
+      <Range Min="72" Max="79" Name="Linear 7-Band VU"/>
+      <Range Min="80" Max="87" Name="Center-Out VU"/>
+      <Range Min="88" Max="95" Name="Pro Peak Hold VU"/>
+      <Range Min="96" Max="103" Name="Bass Wave Expand"/>
+      <Range Min="104" Max="111" Name="Sub-Bass Rumble"/>
+      <Range Min="112" Max="119" Name="Vocal Ribbon"/>
+      <Range Min="120" Max="127" Name="Spectral Centroid"/>
+      <Range Min="128" Max="135" Name="Multi-Band Fountain"/>
+      <Range Min="136" Max="143" Name="BPM Master Tempo"/>
+      <Range Min="144" Max="151" Name="Half/Double Tempo"/>
+      <Range Min="152" Max="159" Name="Drop Buildup &amp; Blast"/>
+      <Range Min="160" Max="167" Name="Dynamic Ambient"/>
+      <Range Min="168" Max="175" Name="Audio Glitch"/>
+      <Range Min="176" Max="183" Name="Acoustic Resonance"/>
+      <Range Min="184" Max="191" Name="Bass Tunnel"/>
+      <Range Min="192" Max="199" Name="Silence Safe Fallback"/>
+      <Range Min="200" Max="255" Name="Reserved / Off"/>
     </Channel>
   </Mode>
 </Fixture>

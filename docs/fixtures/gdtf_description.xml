@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <GDTF DataVersion="1.2">
-  <FixtureType Name="PixelNode WS2811 Strip" ShortName="PxNode7" Manufacturer="PixelNode" Description="High-reliability Art-Net/sACN to WS2811 Pixel LED Node">
+  <FixtureType Name="PixelNode WS2811 Strip" ShortName="PxNode7" Manufacturer="PixelNode" Description="High-reliability Art-Net/sACN to WS2811 Pixel LED Node (Pro 24-Pattern)">
     <DMXModes>
       <DMXMode Name="Preset 7ch" Geometry="Body">
         <DMXChannels>
@@ -37,25 +37,63 @@
           <DMXChannel Offset="6" Geometry="Body" Highlight="0">
             <LogicalChannel Attribute="Control1">
               <ChannelFunction Name="Pattern" Attribute="Control1" DMXFrom="0" DMXTo="255" Default="0">
-                <ChannelSet Name="Static" DMXFrom="0" DMXTo="0"/>
-                <ChannelSet Name="Chase" DMXFrom="1" DMXTo="63"/>
-                <ChannelSet Name="Sine Wave" DMXFrom="64" DMXTo="127"/>
-                <ChannelSet Name="Rainbow" DMXFrom="128" DMXTo="191"/>
-                <ChannelSet Name="Dynamic" DMXFrom="192" DMXTo="255"/>
+                <ChannelSet Name="Static" DMXFrom="0" DMXTo="7"/>
+                <ChannelSet Name="Single Chase" DMXFrom="8" DMXTo="15"/>
+                <ChannelSet Name="Dual Meteor" DMXFrom="16" DMXTo="23"/>
+                <ChannelSet Name="Gravity Bounce" DMXFrom="24" DMXTo="31"/>
+                <ChannelSet Name="Newton's Cradle" DMXFrom="32" DMXTo="39"/>
+                <ChannelSet Name="Liquid Ripple" DMXFrom="40" DMXTo="47"/>
+                <ChannelSet Name="Plasma Flow" DMXFrom="48" DMXTo="55"/>
+                <ChannelSet Name="Sand Cascade" DMXFrom="56" DMXTo="63"/>
+                <ChannelSet Name="Sine Breath" DMXFrom="64" DMXTo="71"/>
+                <ChannelSet Name="Heartbeat Pulse" DMXFrom="72" DMXTo="79"/>
+                <ChannelSet Name="Campfire Flicker" DMXFrom="80" DMXTo="87"/>
+                <ChannelSet Name="Aurora Curtain" DMXFrom="88" DMXTo="95"/>
+                <ChannelSet Name="Electric Arc" DMXFrom="96" DMXTo="103"/>
+                <ChannelSet Name="Firefly Swarm" DMXFrom="104" DMXTo="111"/>
+                <ChannelSet Name="Neural Synapse" DMXFrom="112" DMXTo="119"/>
+                <ChannelSet Name="Jellyfish" DMXFrom="120" DMXTo="127"/>
+                <ChannelSet Name="Rainbow Flow" DMXFrom="128" DMXTo="135"/>
+                <ChannelSet Name="Knight Rider" DMXFrom="136" DMXTo="143"/>
+                <ChannelSet Name="Center Wipe" DMXFrom="144" DMXTo="151"/>
+                <ChannelSet Name="Strobe Matrix" DMXFrom="152" DMXTo="159"/>
+                <ChannelSet Name="Diamond Sparkle" DMXFrom="160" DMXTo="167"/>
+                <ChannelSet Name="Sawtooth Run" DMXFrom="168" DMXTo="175"/>
+                <ChannelSet Name="Matrix Rain" DMXFrom="176" DMXTo="183"/>
+                <ChannelSet Name="Moire Grid" DMXFrom="184" DMXTo="191"/>
+                <ChannelSet Name="Reserved / Static" DMXFrom="192" DMXTo="255"/>
               </ChannelFunction>
             </LogicalChannel>
           </DMXChannel>
           <DMXChannel Offset="7" Geometry="Body" Highlight="0">
             <LogicalChannel Attribute="Control2">
               <ChannelFunction Name="Audio Sync" Attribute="Control2" DMXFrom="0" DMXTo="255" Default="0">
-                <ChannelSet Name="Off" DMXFrom="0" DMXTo="0"/>
-                <ChannelSet Name="Master Pulse" DMXFrom="1" DMXTo="31"/>
-                <ChannelSet Name="Kick Pump" DMXFrom="32" DMXTo="63"/>
-                <ChannelSet Name="Bass Wave" DMXFrom="64" DMXTo="95"/>
-                <ChannelSet Name="Beat Step" DMXFrom="96" DMXTo="127"/>
-                <ChannelSet Name="Tempo Sync" DMXFrom="128" DMXTo="159"/>
-                <ChannelSet Name="Snare Flash" DMXFrom="160" DMXTo="191"/>
-                <ChannelSet Name="Spectrum VU" DMXFrom="192" DMXTo="255"/>
+                <ChannelSet Name="Off" DMXFrom="0" DMXTo="7"/>
+                <ChannelSet Name="Master Pulse" DMXFrom="8" DMXTo="15"/>
+                <ChannelSet Name="Kick Pump Flash" DMXFrom="16" DMXTo="23"/>
+                <ChannelSet Name="Snare Snap Flash" DMXFrom="24" DMXTo="31"/>
+                <ChannelSet Name="Hi-Hat Glitter" DMXFrom="32" DMXTo="39"/>
+                <ChannelSet Name="Drum Kit 3-Way" DMXFrom="40" DMXTo="47"/>
+                <ChannelSet Name="Shockwave Blast" DMXFrom="48" DMXTo="55"/>
+                <ChannelSet Name="Beat Step Walk" DMXFrom="56" DMXTo="63"/>
+                <ChannelSet Name="Beat Invert Strobe" DMXFrom="64" DMXTo="71"/>
+                <ChannelSet Name="Linear 7-Band VU" DMXFrom="72" DMXTo="79"/>
+                <ChannelSet Name="Center-Out VU" DMXFrom="80" DMXTo="87"/>
+                <ChannelSet Name="Pro Peak Hold VU" DMXFrom="88" DMXTo="95"/>
+                <ChannelSet Name="Bass Wave Expand" DMXFrom="96" DMXTo="103"/>
+                <ChannelSet Name="Sub-Bass Rumble" DMXFrom="104" DMXTo="111"/>
+                <ChannelSet Name="Vocal Ribbon" DMXFrom="112" DMXTo="119"/>
+                <ChannelSet Name="Spectral Centroid" DMXFrom="120" DMXTo="127"/>
+                <ChannelSet Name="Multi-Band Fountain" DMXFrom="128" DMXTo="135"/>
+                <ChannelSet Name="BPM Master Tempo" DMXFrom="136" DMXTo="143"/>
+                <ChannelSet Name="Half/Double Tempo" DMXFrom="144" DMXTo="151"/>
+                <ChannelSet Name="Drop Buildup &amp; Blast" DMXFrom="152" DMXTo="159"/>
+                <ChannelSet Name="Dynamic Ambient" DMXFrom="160" DMXTo="167"/>
+                <ChannelSet Name="Audio Glitch" DMXFrom="168" DMXTo="175"/>
+                <ChannelSet Name="Acoustic Resonance" DMXFrom="176" DMXTo="183"/>
+                <ChannelSet Name="Bass Tunnel" DMXFrom="184" DMXTo="191"/>
+                <ChannelSet Name="Silence Safe Fallback" DMXFrom="192" DMXTo="199"/>
+                <ChannelSet Name="Reserved / Off" DMXFrom="200" DMXTo="255"/>
               </ChannelFunction>
             </LogicalChannel>
           </DMXChannel>

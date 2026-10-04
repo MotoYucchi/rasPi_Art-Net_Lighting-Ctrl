@@ -5,6 +5,9 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+pub mod audio_patterns;
+pub mod patterns;
+
 use audio_proto::AudioFeaturePacket;
 use core::time::Duration;
 use fixture::{RenderCommand, StrobeMode, WhiteMode};
@@ -135,10 +138,14 @@ impl RenderEngine {
                 };
 
                 // 2. Render Pattern or Audio Sync Pattern
-                // Priority: audio_mode_id >= 1 takes precedence
-                if *audio_mode_id > 0 && audio.is_some() {
-                    let aud = audio.unwrap(); // safe because audio.is_some()
-                    self.render_audio_pattern(*audio_mode_id, aud, base_rgb, elapsed, out_pixels);
+                // Priority: audio_mode_id slot >= 1 (DMX >= 8) takes precedence if audio is present
+                let audio_slot = (*audio_mode_id) / 8;
+                if audio_slot > 0 {
+                    if let Some(aud) = audio {
+                        self.render_audio_pattern(*audio_mode_id, aud, base_rgb, elapsed, out_pixels);
+                    } else {
+                        self.render_pattern(*pattern_id, base_rgb, *speed, *size, elapsed, out_pixels);
+                    }
                 } else {
                     self.render_pattern(*pattern_id, base_rgb, *speed, *size, elapsed, out_pixels);
                 }
@@ -242,7 +249,7 @@ impl RenderEngine {
     }
 
     /// Internal pattern generator
-    fn render_pattern(
+    pub fn render_pattern(
         &self,
         pattern_id: u8,
         base_color: RgbColor,
@@ -251,110 +258,19 @@ impl RenderEngine {
         elapsed: Duration,
         out: &mut [RgbColor],
     ) {
-        let count = out.len();
-        match pattern_id {
-            0 => {
-                // Static: All LEDs set to base color
-                out.fill(base_color);
-            }
-            1 => {
-                // Single Chase: Moving dot across the strip
-                let spd = ((speed as f32 - 128.0) / 128.0) * 10.0;
-                let t = (elapsed.as_secs_f32() * spd).abs();
-                let head_idx = (t as usize) % count;
-                let chase_width = (size as usize / 32).max(1);
-
-                out.fill(RgbColor::default());
-                for w in 0..chase_width {
-                    let idx = (head_idx + w) % count;
-                    out[idx] = base_color;
-                }
-            }
-            2 => {
-                // Sine Wave Pulse
-                let freq = (speed as f32 / 128.0) * 2.0;
-                let phase = elapsed.as_secs_f32() * freq * core::f32::consts::TAU;
-                for (i, px) in out.iter_mut().enumerate() {
-                    let pos = (i as f32 / count as f32) * core::f32::consts::TAU;
-                    let factor = (0.5 + 0.5 * (pos + phase).sin()).clamp(0.0, 1.0);
-                    px.r = (base_color.r as f32 * factor) as u8;
-                    px.g = (base_color.g as f32 * factor) as u8;
-                    px.b = (base_color.b as f32 * factor) as u8;
-                }
-            }
-            3 => {
-                // Rainbow Chase
-                let spd = (speed as f32 / 128.0) * 2.0;
-                let offset = (elapsed.as_secs_f32() * spd * 255.0) as u32;
-                for (i, px) in out.iter_mut().enumerate() {
-                    let hue = (((i as u32 * 255) / count as u32) + offset) as u8;
-                    *px = hue_to_rgb(hue);
-                }
-            }
-            _ => {
-                // Fallback to static
-                out.fill(base_color);
-            }
-        }
+        patterns::render_pattern(pattern_id, base_color, speed, size, elapsed, out);
     }
 
     /// Audio-driven pattern generator
-    fn render_audio_pattern(
+    pub fn render_audio_pattern(
         &self,
         mode_id: u8,
         audio: &AudioFeaturePacket,
         base_color: RgbColor,
-        _elapsed: Duration,
+        elapsed: Duration,
         out: &mut [RgbColor],
     ) {
-        let count = out.len();
-        match mode_id {
-            1 => {
-                // Master Pulse: scale brightness directly with audio RMS level
-                let factor = audio.rms_level as f32 / 255.0;
-                let c = RgbColor {
-                    r: (base_color.r as f32 * factor) as u8,
-                    g: (base_color.g as f32 * factor) as u8,
-                    b: (base_color.b as f32 * factor) as u8,
-                };
-                out.fill(c);
-            }
-            2 => {
-                // Kick Pump: Flash 100% white on Kick, otherwise fade with bass
-                if audio.is_kick() {
-                    out.fill(RgbColor { r: 255, g: 255, b: 255 });
-                } else {
-                    let bass_factor = (audio.bands[0].max(audio.bands[1])) as f32 / 255.0;
-                    let c = RgbColor {
-                        r: (base_color.r as f32 * bass_factor) as u8,
-                        g: (base_color.g as f32 * bass_factor) as u8,
-                        b: (base_color.b as f32 * bass_factor) as u8,
-                    };
-                    out.fill(c);
-                }
-            }
-            7 => {
-                // 7-Band Spectrum VU meter
-                let band_size = count / 7;
-                for band_idx in 0..7 {
-                    let energy = audio.bands[band_idx];
-                    let start = band_idx * band_size;
-                    let end = if band_idx == 6 { count } else { start + band_size };
-                    let c = hue_to_rgb((band_idx as u8) * 36);
-                    let dimmed_c = RgbColor {
-                        r: (((c.r as u32) * (energy as u32)) / 255) as u8,
-                        g: (((c.g as u32) * (energy as u32)) / 255) as u8,
-                        b: (((c.b as u32) * (energy as u32)) / 255) as u8,
-                    };
-                    for px in out[start..end].iter_mut() {
-                        *px = dimmed_c;
-                    }
-                }
-            }
-            _ => {
-                out.fill(base_color);
-            }
-        }
+        audio_patterns::render_audio_pattern(mode_id, audio, base_color, elapsed, out);
     }
 
     /// Render standalone rig-check test pattern
@@ -477,5 +393,123 @@ mod tests {
 
         // Current should be scaled down to approx 1/6th
         assert!(pixels[0].r < 50);
+    }
+
+    #[test]
+    fn test_all_24_lighting_patterns_sweep() {
+        let engine = RenderEngine::new(ColorOrder::Grb, 5000);
+        let base_color = RgbColor { r: 200, g: 100, b: 50 };
+        let pixel_counts = [1, 5, 60, 170, 300];
+        let speeds = [0, 64, 128, 192, 255];
+        let sizes = [0, 32, 128, 200, 255];
+        let times = [
+            Duration::ZERO,
+            Duration::from_millis(500),
+            Duration::from_secs(120),
+            Duration::from_secs(3600), // 1 hour elapsed
+        ];
+
+        for &px_count in &pixel_counts {
+            let mut out = vec![RgbColor::default(); px_count];
+            // Test each slot (0..=31) via representative DMX values
+            for slot in 0..=31 {
+                let dmx_val = (slot * 8).min(255) as u8;
+                for &spd in &speeds {
+                    for &sz in &sizes {
+                        for &elapsed in &times {
+                            engine.render_pattern(dmx_val, base_color, spd, sz, elapsed, &mut out);
+                            // Verify output doesn't panic and is valid
+                            assert_eq!(out.len(), px_count);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_all_24_audio_patterns_sweep() {
+        let engine = RenderEngine::new(ColorOrder::Grb, 5000);
+        let base_color = RgbColor { r: 150, g: 75, b: 220 };
+        let pixel_counts = [1, 7, 50, 170];
+        let times = [Duration::ZERO, Duration::from_millis(250), Duration::from_secs(60)];
+
+        // Test with various audio packets
+        let silent_pkt = AudioFeaturePacket::default();
+        let mut full_pkt = AudioFeaturePacket::default();
+        full_pkt.rms_level = 255;
+        full_pkt.peak_level = 255;
+        full_pkt.bands = [255; 7];
+        full_pkt.triggers = 0xFF; // All triggers active
+        full_pkt.spectral_centroid = 200;
+        full_pkt.beat_phase = 64;
+
+        let packets = [silent_pkt, full_pkt];
+
+        for &px_count in &pixel_counts {
+            let mut out = vec![RgbColor::default(); px_count];
+            for slot in 0..=31 {
+                let dmx_val = (slot * 8).min(255) as u8;
+                for pkt in &packets {
+                    for &elapsed in &times {
+                        engine.render_audio_pattern(dmx_val, pkt, base_color, elapsed, &mut out);
+                        assert_eq!(out.len(), px_count);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_audio_priority_and_fallback_mechanism() {
+        let engine = RenderEngine::new(ColorOrder::Grb, 5000);
+        let mut out = vec![RgbColor::default(); 50];
+
+        let cmd_audio_off = fixture::RenderCommand::Preset {
+            master_dimmer: 255,
+            strobe: StrobeMode::Open,
+            color: fixture::ColorRgbw { r: 255, g: 0, b: 0, w: 0 },
+            pattern_id: 0, // Static Red
+            audio_mode_id: 0, // Audio OFF (slot 0)
+            speed: 128,
+            size: 128,
+            white_mode: WhiteMode::Ignore,
+        };
+
+        // When audio is OFF (slot 0), static red should render
+        engine.render(&cmd_audio_off, None, Duration::ZERO, &mut out);
+        assert_eq!(out[0], RgbColor { r: 255, g: 0, b: 0 });
+
+        // When audio is ON (slot 2: Kick Pump = DMX 16) with kick active
+        let mut kick_audio = AudioFeaturePacket::default();
+        kick_audio.triggers = audio_proto::TRIGGER_KICK;
+        let cmd_audio_on = fixture::RenderCommand::Preset {
+            master_dimmer: 255,
+            strobe: StrobeMode::Open,
+            color: fixture::ColorRgbw { r: 255, g: 0, b: 0, w: 0 },
+            pattern_id: 0, // Static Red
+            audio_mode_id: 16, // Slot 2 (Kick Pump Flash)
+            speed: 128,
+            size: 128,
+            white_mode: WhiteMode::Ignore,
+        };
+
+        engine.render(&cmd_audio_on, Some(&kick_audio), Duration::ZERO, &mut out);
+        // Kick pump flashes full white on kick
+        assert_eq!(out[0], RgbColor { r: 255, g: 255, b: 255 });
+
+        // When audio is ON (audio_mode_id = 16) but audio stream is LOST (None):
+        // Engine must safely fall back to static red without panic
+        engine.render(&cmd_audio_on, None, Duration::ZERO, &mut out);
+        assert_eq!(out[0], RgbColor { r: 255, g: 0, b: 0 });
+    }
+
+    #[test]
+    fn test_empty_pixel_buffer_safety() {
+        let engine = RenderEngine::new(ColorOrder::Grb, 5000);
+        let mut empty_out: [RgbColor; 0] = [];
+        engine.render_pattern(16, RgbColor::default(), 128, 128, Duration::ZERO, &mut empty_out);
+        engine.render_audio_pattern(16, &AudioFeaturePacket::default(), RgbColor::default(), Duration::ZERO, &mut empty_out);
+        assert_eq!(empty_out.len(), 0);
     }
 }

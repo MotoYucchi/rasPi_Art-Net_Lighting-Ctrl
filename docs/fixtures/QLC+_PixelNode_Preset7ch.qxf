@@ -3,11 +3,11 @@
 <FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition">
  <Creator>
   <Name>PixelNode Generator</Name>
-  <Version>0.1.0</Version>
+  <Version>1.0.0</Version>
   <Author>motoyucchi</Author>
  </Creator>
  <Manufacturer>PixelNode</Manufacturer>
- <Model>WS2811 Strip Node</Model>
+ <Model>WS2811 Strip Node (Pro 24-Pattern)</Model>
  <Type>Color Changer</Type>
  <Channel Name="Dimmer / Strobe" Preset="ShutterStrobe">
   <Group Byte="0">Shutter</Group>
@@ -22,22 +22,60 @@
  <Channel Name="White" Preset="IntensityWhite"/>
  <Channel Name="Pattern">
   <Group Byte="0">Effect</Group>
-  <Capability Min="0" Max="0">Static (Base Color)</Capability>
-  <Capability Min="1" Max="63">Pattern Bank 1 (Chase)</Capability>
-  <Capability Min="64" Max="127">Pattern Bank 2 (Sine Wave)</Capability>
-  <Capability Min="128" Max="191">Pattern Bank 3 (Rainbow)</Capability>
-  <Capability Min="192" Max="255">Pattern Bank 4 (Dynamic)</Capability>
+  <Capability Min="0" Max="7">Static (Base Color)</Capability>
+  <Capability Min="8" Max="15">Single Chase</Capability>
+  <Capability Min="16" Max="23">Dual Meteor</Capability>
+  <Capability Min="24" Max="31">Gravity Bounce</Capability>
+  <Capability Min="32" Max="39">Newton's Cradle</Capability>
+  <Capability Min="40" Max="47">Liquid Ripple</Capability>
+  <Capability Min="48" Max="55">Plasma Flow</Capability>
+  <Capability Min="56" Max="63">Sand Cascade</Capability>
+  <Capability Min="64" Max="71">Sine Breath</Capability>
+  <Capability Min="72" Max="79">Heartbeat Pulse</Capability>
+  <Capability Min="80" Max="87">Campfire Flicker</Capability>
+  <Capability Min="88" Max="95">Aurora Curtain</Capability>
+  <Capability Min="96" Max="103">Electric Arc</Capability>
+  <Capability Min="104" Max="111">Firefly Swarm</Capability>
+  <Capability Min="112" Max="119">Neural Synapse</Capability>
+  <Capability Min="120" Max="127">Jellyfish</Capability>
+  <Capability Min="128" Max="135">Rainbow Flow</Capability>
+  <Capability Min="136" Max="143">Knight Rider</Capability>
+  <Capability Min="144" Max="151">Center Wipe</Capability>
+  <Capability Min="152" Max="159">Strobe Matrix</Capability>
+  <Capability Min="160" Max="167">Diamond Sparkle</Capability>
+  <Capability Min="168" Max="175">Sawtooth Run</Capability>
+  <Capability Min="176" Max="183">Matrix Rain</Capability>
+  <Capability Min="184" Max="191">Moire Grid</Capability>
+  <Capability Min="192" Max="255">Reserved / Static</Capability>
  </Channel>
  <Channel Name="Audio Sync">
   <Group Byte="0">Effect</Group>
-  <Capability Min="0" Max="0">Off (Use Pattern ch6)</Capability>
-  <Capability Min="1" Max="31">Master Pulse (RMS Volume)</Capability>
-  <Capability Min="32" Max="63">Kick Pump (Flash &amp; Bass)</Capability>
-  <Capability Min="64" Max="95">Bass Wave</Capability>
-  <Capability Min="96" Max="127">Beat Step (Chase step on beat)</Capability>
-  <Capability Min="128" Max="159">Tempo Sync (Lock speed to BPM)</Capability>
-  <Capability Min="160" Max="191">Snare Flash</Capability>
-  <Capability Min="192" Max="255">7-Band Spectrum VU</Capability>
+  <Capability Min="0" Max="7">Off (Use Pattern ch6)</Capability>
+  <Capability Min="8" Max="15">Master Pulse (RMS Volume)</Capability>
+  <Capability Min="16" Max="23">Kick Pump Flash</Capability>
+  <Capability Min="24" Max="31">Snare Snap Flash</Capability>
+  <Capability Min="32" Max="39">Hi-Hat Glitter</Capability>
+  <Capability Min="40" Max="47">Drum Kit 3-Way</Capability>
+  <Capability Min="48" Max="55">Shockwave Blast</Capability>
+  <Capability Min="56" Max="63">Beat Step Walk</Capability>
+  <Capability Min="64" Max="71">Beat Invert Strobe</Capability>
+  <Capability Min="72" Max="79">Linear 7-Band VU</Capability>
+  <Capability Min="80" Max="87">Center-Out VU</Capability>
+  <Capability Min="88" Max="95">Pro Peak Hold VU</Capability>
+  <Capability Min="96" Max="103">Bass Wave Expand</Capability>
+  <Capability Min="104" Max="111">Sub-Bass Rumble</Capability>
+  <Capability Min="112" Max="119">Vocal Ribbon</Capability>
+  <Capability Min="120" Max="127">Spectral Centroid</Capability>
+  <Capability Min="128" Max="135">Multi-Band Fountain</Capability>
+  <Capability Min="136" Max="143">BPM Master Tempo</Capability>
+  <Capability Min="144" Max="151">Half/Double Tempo</Capability>
+  <Capability Min="152" Max="159">Drop Buildup &amp; Blast</Capability>
+  <Capability Min="160" Max="167">Dynamic Ambient</Capability>
+  <Capability Min="168" Max="175">Audio Glitch</Capability>
+  <Capability Min="176" Max="183">Acoustic Resonance</Capability>
+  <Capability Min="184" Max="191">Bass Tunnel</Capability>
+  <Capability Min="192" Max="199">Silence Safe Fallback</Capability>
+  <Capability Min="200" Max="255">Reserved / Off</Capability>
  </Channel>
  <Mode Name="Preset 7ch">
   <Channel Number="0">Dimmer / Strobe</Channel>
