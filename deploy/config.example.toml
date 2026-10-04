@@ -10,6 +10,11 @@ artnet = true                   # Listen on UDP 6454
 sacn = true                     # Listen on UDP 5568 & join E1.31 multicast groups
 bind_ip = "0.0.0.0"
 
+[web]
+enabled = true                  # Embedded Web UI & REST API for headless Linux
+port = 8080                     # Web UI port (http://<raspi-ip>:8080)
+bind_ip = "0.0.0.0"
+
 [audio]
 enabled = true
 listen_udp_port = 8765          # Broadcast port from audio-host-sender

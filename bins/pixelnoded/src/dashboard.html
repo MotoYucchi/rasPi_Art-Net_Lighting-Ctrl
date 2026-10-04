@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PixelNode Control & Monitor</title>
+  <style>
+    :root {
+      --bg-base: #0f1117;
+      --bg-card: #181c27;
+      --bg-card-hover: #202534;
+      --border: #283046;
+      --accent-cyan: #00d2ff;
+      --accent-green: #00e676;
+      --accent-orange: #ff9100;
+      --accent-red: #ff3d00;
+      --accent-purple: #b388ff;
+      --text-main: #f0f3f8;
+      --text-muted: #8b98b2;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg-base);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #00d2ff, #7928ca);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 16px;
+      color: #fff;
+    }
+    .brand-title { font-size: 18px; font-weight: 700; letter-spacing: 0.5px; }
+    .node-tag {
+      font-size: 11px;
+      background: var(--border);
+      color: var(--text-muted);
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-family: var(--font-mono);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .pill {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 20px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .pill-green { background: rgba(0, 230, 118, 0.15); color: var(--accent-green); border: 1px solid rgba(0, 230, 118, 0.3); }
+    .pill-orange { background: rgba(255, 145, 0, 0.15); color: var(--accent-orange); border: 1px solid rgba(255, 145, 0, 0.3); }
+    .pill-red { background: rgba(255, 61, 0, 0.15); color: var(--accent-red); border: 1px solid rgba(255, 61, 0, 0.3); }
+
+    .btn {
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 8px 16px;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-sans);
+    }
+    .btn-lock {
+      background: #232b3e;
+      border-color: var(--border);
+      color: var(--text-main);
+    }
+    .btn-lock.locked {
+      background: rgba(255, 61, 0, 0.2);
+      border-color: var(--accent-red);
+      color: var(--accent-red);
+    }
+    .btn-primary { background: var(--accent-cyan); color: #000; }
+    .btn-primary:hover { background: #33dcff; }
+    .btn-danger { background: var(--accent-red); color: #fff; }
+    .btn-danger:hover { background: #ff5722; }
+    .btn-outline {
+      background: transparent;
+      border-color: var(--border);
+      color: var(--text-main);
+    }
+    .btn-outline:hover { background: var(--bg-card-hover); }
+
+    nav {
+      background: #141721;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      padding: 0 24px;
+      gap: 4px;
+    }
+    .nav-tab {
+      padding: 12px 18px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s ease, border-bottom 0.15s ease;
+    }
+    .nav-tab.active {
+      color: var(--accent-cyan);
+      border-bottom-color: var(--accent-cyan);
+    }
+
+    main {
+      padding: 24px;
+      max-width: 1200px;
+      width: 100%;
+      margin: 0 auto;
+      flex: 1;
+    }
+
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+      gap: 20px;
+      margin-bottom: 24px;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px;
+    }
+    .card-title {
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .stat-val {
+      font-size: 28px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      color: var(--text-main);
+    }
+    .stat-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    .meter-container {
+      margin-top: 10px;
+      background: #11141c;
+      border-radius: 6px;
+      height: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .meter-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--accent-cyan);
+      transition: width 0.2s ease;
+    }
+
+    /* Channel Bars */
+    .ch-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .ch-item {
+      background: #12151f;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px;
+      text-align: center;
+    }
+    .ch-name { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+    .ch-val { font-size: 15px; font-weight: 700; font-family: var(--font-mono); }
+    .ch-bar {
+      height: 4px;
+      background: #252c3d;
+      border-radius: 2px;
+      margin-top: 6px;
+      overflow: hidden;
+    }
+    .ch-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--accent-cyan);
+    }
+
+    /* Audio visualizer elements */
+    .audio-triggers {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .trig-badge {
+      flex: 1;
+      padding: 8px;
+      background: #12151f;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-muted);
+      transition: all 0.1s ease;
+    }
+    .trig-badge.flash {
+      background: var(--accent-purple);
+      color: #fff;
+      box-shadow: 0 0 12px rgba(179, 136, 255, 0.6);
+      transform: scale(1.04);
+    }
+
+    /* Rig check controls */
+    .rig-buttons {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .btn-test {
+      padding: 14px;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 8px;
+      background: #202636;
+      border: 1px solid var(--border);
+      color: var(--text-main);
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+    .btn-test:hover {
+      background: #2a3246;
+      border-color: var(--accent-cyan);
+    }
+    .btn-test.active {
+      background: rgba(0, 210, 255, 0.15);
+      border-color: var(--accent-cyan);
+      color: var(--accent-cyan);
+      box-shadow: 0 0 10px rgba(0, 210, 255, 0.3);
+    }
+    .color-picker-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+    .swatch {
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: transform 0.1s;
+    }
+    .swatch:hover { transform: scale(1.15); }
+
+    /* Config forms */
+    .form-group {
+      margin-bottom: 16px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: var(--text-main);
+    }
+    .form-control {
+      width: 100%;
+      background: #11141c;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 9px 12px;
+      color: var(--text-main);
+      font-size: 14px;
+      font-family: inherit;
+    }
+    .form-control:focus {
+      outline: none;
+      border-color: var(--accent-cyan);
+    }
+    .form-control:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .alert {
+      padding: 12px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .alert-warn {
+      background: rgba(255, 145, 0, 0.15);
+      border: 1px solid var(--accent-orange);
+      color: var(--accent-orange);
+    }
+    .alert-success {
+      background: rgba(0, 230, 118, 0.15);
+      border: 1px solid var(--accent-green);
+      color: var(--accent-green);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin-top: 10px;
+    }
+    th, td {
+      padding: 10px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    th {
+      color: var(--text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 11px;
+    }
+    td { font-family: var(--font-mono); }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <div class="brand-icon">PX</div>
+      <div>
+        <span class="brand-title">PixelNode</span>
+        <span class="node-tag" id="headerNodeName">Node</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <span class="pill pill-green" id="fpsPill">● 50.0 FPS</span>
+      <span class="pill pill-orange" id="failsafePill" style="display:none;">FAILSAFE: HOLD</span>
+      <button class="btn btn-lock" id="btnToggleLock" onclick="toggleShowLock()">
+        <span id="lockIcon">🔓</span> <span id="lockText">Unlocked</span>
+      </button>
+    </div>
+  </header>
+
+  <nav>
+    <div class="nav-tab active" onclick="switchTab('overview')">Telemetry & Monitor</div>
+    <div class="nav-tab" onclick="switchTab('rigcheck')">Rig Check / Self-Test</div>
+    <div class="nav-tab" onclick="switchTab('config')">Configuration</div>
+  </nav>
+
+  <main>
+    <!-- TAB 1: OVERVIEW -->
+    <div id="tab-overview" class="tab-pane active">
+      <div class="grid-4">
+        <div class="card">
+          <div class="card-title">Render Performance</div>
+          <div class="stat-val" id="statFps">50.0 <span style="font-size:14px;color:var(--text-muted)">FPS</span></div>
+          <div class="stat-sub" id="statFrames">Frames: 0</div>
+          <div class="meter-container"><div class="meter-fill" id="fpsMeter" style="width: 100%;"></div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Network DMX Rx</div>
+          <div class="stat-val" id="statDmxRx">0 <span style="font-size:14px;color:var(--text-muted)">pkts</span></div>
+          <div class="stat-sub" id="statProtoDetail">Art-Net: 0 | sACN: 0</div>
+          <div class="meter-container"><div class="meter-fill" id="dmxMeter" style="width: 0%;"></div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Power Limitation (ABL)</div>
+          <div class="stat-val" id="statPower">0.0 <span style="font-size:14px;color:var(--text-muted)">A</span></div>
+          <div class="stat-sub" id="statPowerSub">Limit: 15.0 A (0%)</div>
+          <div class="meter-container"><div class="meter-fill" id="powerMeter" style="width: 0%;"></div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Audio Transient Sync</div>
+          <div class="stat-val" id="statAudioBpm">--- <span style="font-size:14px;color:var(--text-muted)">BPM</span></div>
+          <div class="stat-sub" id="statAudioStatus">Disconnected</div>
+          <div class="audio-triggers">
+            <div class="trig-badge" id="kickBadge">KICK</div>
+            <div class="trig-badge" id="snareBadge">SNARE</div>
+            <div class="trig-badge" id="hihatBadge">HIHAT</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">Live Channel Values (Universe <span id="lblActiveUniv">1</span>)</div>
+          <div class="ch-grid" id="channelsGrid">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Universe Subscriptions</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Univ</th>
+                <th>Source</th>
+                <th>Status</th>
+                <th>Age</th>
+              </tr>
+            </thead>
+            <tbody id="univTableBody">
+              <tr><td colspan="4" style="text-align:center;color:var(--text-muted);">Listening for packets...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: RIG CHECK -->
+    <div id="tab-rigcheck" class="tab-pane">
+      <div id="rigLockAlert" class="alert alert-warn" style="display:none;">
+        ⚠️ Show Lock is ACTIVE. Rig Check test pattern overrides are locked out during live show. Unlock node first.
+      </div>
+
+      <div class="card" style="margin-bottom: 20px;">
+        <div class="card-title">Instant Field Diagnostic Patterns</div>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
+          Drive hardware output directly without lighting console transmission. Verify wiring, pixel count, and voltage drops.
+        </p>
+
+        <div class="rig-buttons">
+          <button class="btn-test" id="btnTestRgbw" onclick="setTestPattern('rgbw')">
+            <span style="font-size:20px">🎨</span>
+            <span>RGBW Cycle</span>
+          </button>
+          <button class="btn-test" id="btnTestWalker" onclick="setTestPattern('walker')">
+            <span style="font-size:20px">🚶</span>
+            <span>Address Walker</span>
+          </button>
+          <button class="btn-test" id="btnTestSoak" onclick="setTestPattern('soak')">
+            <span style="font-size:20px">⚡</span>
+            <span>Power Soak 100%</span>
+          </button>
+          <button class="btn-test" id="btnTestStrobe" onclick="setTestPattern('strobe')">
+            <span style="font-size:20px">⚡⚡</span>
+            <span>High-Rate Strobe</span>
+          </button>
+          <button class="btn-test btn-danger" id="btnTestStop" onclick="setTestPattern('off')" style="grid-column: 1 / -1;">
+            <span>■ STOP / Resume Live DMX Control</span>
+          </button>
+        </div>
+
+        <div class="color-picker-row">
+          <span style="font-size: 13px; font-weight: 600;">Custom Solid Color:</span>
+          <input type="color" id="customColorInput" value="#ff0000" onchange="applyCustomColor()" style="border:none;background:none;cursor:pointer;width:36px;height:36px;">
+          <div class="swatch" style="background:#ff0000" onclick="quickColor(255,0,0)"></div>
+          <div class="swatch" style="background:#00ff00" onclick="quickColor(0,255,0)"></div>
+          <div class="swatch" style="background:#0000ff" onclick="quickColor(0,0,255)"></div>
+          <div class="swatch" style="background:#ffffff" onclick="quickColor(255,255,255)"></div>
+          <div class="swatch" style="background:#ffaa00" onclick="quickColor(255,170,0)"></div>
+          <div class="swatch" style="background:#00ffff" onclick="quickColor(0,255,255)"></div>
+          <div class="swatch" style="background:#ff00ff" onclick="quickColor(255,0,255)"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: CONFIGURATION -->
+    <div id="tab-config" class="tab-pane">
+      <div id="configSuccessAlert" class="alert alert-success" style="display:none;">
+        Configuration updated and saved to disk.
+      </div>
+      <div id="configLockAlert" class="alert alert-warn" style="display:none;">
+        ⚠️ Show Lock is ACTIVE. Settings cannot be saved while locked. Unlock node above to enable editing.
+      </div>
+
+      <div class="card">
+        <div class="card-title">Node & Protocol Settings</div>
+        <form id="configForm" onsubmit="saveConfig(event)">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Node Name</label>
+              <input type="text" id="cfgNodeName" class="form-control" required>
+            </div>
+            <div class="form-group">
+              <label>Bind Interface IP</label>
+              <input type="text" id="cfgBindIp" class="form-control" value="0.0.0.0" required>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Art-Net Protocol</label>
+              <select id="cfgArtnet" class="form-control">
+                <option value="true">Enabled (Port 6454)</option>
+                <option value="false">Disabled</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>sACN Protocol (E1.31)</label>
+              <select id="cfgSacn" class="form-control">
+                <option value="true">Enabled (Port 5568 Multicast)</option>
+                <option value="false">Disabled</option>
+              </select>
+            </div>
+          </div>
+
+          <hr style="border:none;border-top:1px solid var(--border);margin:16px 0;">
+          <div class="card-title">Fixture & DMX Mapping</div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Personality Mode</label>
+              <select id="cfgPersonality" class="form-control">
+                <option value="preset_7ch">Preset 7ch (Dimmer/Strobe, RGBW, FX, Audio Sync)</option>
+                <option value="standard">Standard 12ch (Extended Control)</option>
+                <option value="pixel_direct">Pixel Direct RGB (Media Server 3ch/px)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Color Order</label>
+              <select id="cfgColorOrder" class="form-control">
+                <option value="brg">BRG (Standard WS2811 24V)</option>
+                <option value="grb">GRB (WS2812B 5V)</option>
+                <option value="rgb">RGB</option>
+                <option value="rbg">RBG</option>
+                <option value="bgr">BGR</option>
+                <option value="gbr">GBR</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Start Universe</label>
+              <input type="number" id="cfgUniverse" class="form-control" min="1" max="63999" value="1" required>
+            </div>
+            <div class="form-group">
+              <label>Start Address (1-512)</label>
+              <input type="number" id="cfgAddress" class="form-control" min="1" max="512" value="1" required>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Total LED Pixels</label>
+              <input type="number" id="cfgPixels" class="form-control" min="1" max="3000" value="300" required>
+            </div>
+            <div class="form-group">
+              <label>PSU Max Current Limit (mA)</label>
+              <input type="number" id="cfgPsuMax" class="form-control" min="1000" max="60000" value="15000" required>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Data Loss Failsafe Policy</label>
+              <select id="cfgFailsafePolicy" class="form-control">
+                <option value="hold">Hold Last Frame (Standard Live Concert)</option>
+                <option value="hold_then_fade">Hold then Fade to Black</option>
+                <option value="blackout">Immediate Blackout</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Universe Span Mode (Pixel Direct)</label>
+              <select id="cfgSpanMode" class="form-control">
+                <option value="per_170px">Per 170 Pixels (Skip Ch 511-512)</option>
+                <option value="packed">Packed Continuously</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="margin-top: 20px; display:flex; gap:12px;">
+            <button type="submit" class="btn btn-primary" id="btnSaveConfig">Save & Apply Changes</button>
+            <button type="button" class="btn btn-outline" onclick="loadConfig()">Reload</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    let isLocked = false;
+    let currentTab = 'overview';
+
+    function switchTab(tab) {
+      currentTab = tab;
+      document.querySelectorAll('.nav-tab').forEach((el, idx) => {
+        el.classList.toggle('active', ['overview', 'rigcheck', 'config'][idx] === tab);
+      });
+      document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
+      const activePane = document.getElementById('tab-' + tab);
+      if (activePane) activePane.classList.add('active');
+    }
+
+    async function fetchStatus() {
+      try {
+        const res = await fetch('/api/status');
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // Node & header
+        document.getElementById('headerNodeName').textContent = data.node_name;
+        isLocked = data.show_lock;
+        updateLockUI(isLocked);
+
+        // Performance
+        const fps = (data.fps_x10 / 10).toFixed(1);
+        document.getElementById('statFps').innerHTML = `${fps} <span style="font-size:14px;color:var(--text-muted)">FPS</span>`;
+        document.getElementById('fpsPill').textContent = `● ${fps} FPS`;
+        document.getElementById('statFrames').textContent = `Frames: ${data.frame_count}`;
+        document.getElementById('fpsMeter').style.width = Math.min(100, (fps / 50) * 100) + '%';
+
+        // Failsafe indicator
+        const failsafeEl = document.getElementById('failsafePill');
+        if (data.failsafe_active) {
+          failsafeEl.style.display = 'inline-flex';
+        } else {
+          failsafeEl.style.display = 'none';
+        }
+
+        // Network
+        const totalDmx = data.artnet_rx + data.sacn_rx;
+        document.getElementById('statDmxRx').innerHTML = `${totalDmx} <span style="font-size:14px;color:var(--text-muted)">pkts</span>`;
+        document.getElementById('statProtoDetail').textContent = `Art-Net: ${data.artnet_rx} | sACN: ${data.sacn_rx}`;
+
+        // Power
+        const curA = (data.current_ma / 1000).toFixed(2);
+        const maxA = (data.max_psu_ma / 1000).toFixed(1);
+        const pct = Math.min(100, Math.round((data.current_ma / data.max_psu_ma) * 100));
+        document.getElementById('statPower').innerHTML = `${curA} <span style="font-size:14px;color:var(--text-muted)">A</span>`;
+        document.getElementById('statPowerSub').textContent = `Limit: ${maxA} A (${pct}%)`;
+        const pMeter = document.getElementById('powerMeter');
+        pMeter.style.width = pct + '%';
+        pMeter.style.background = pct > 90 ? 'var(--accent-red)' : (pct > 70 ? 'var(--accent-orange)' : 'var(--accent-cyan)');
+
+        // Audio
+        if (data.audio && data.audio.connected) {
+          document.getElementById('statAudioBpm').innerHTML = `${data.audio.bpm.toFixed(1)} <span style="font-size:14px;color:var(--text-muted)">BPM</span>`;
+          document.getElementById('statAudioStatus').textContent = `Active (Energy: ${(data.audio.energy * 100).toFixed(0)}%)`;
+          toggleBadge('kickBadge', data.audio.kick);
+          toggleBadge('snareBadge', data.audio.snare);
+          toggleBadge('hihatBadge', data.audio.hihat);
+        } else {
+          document.getElementById('statAudioBpm').innerHTML = `--- <span style="font-size:14px;color:var(--text-muted)">BPM</span>`;
+          document.getElementById('statAudioStatus').textContent = 'No Signal / Offline';
+        }
+
+        // Active test mode buttons
+        const testModes = ['off', 'rgbw', 'walker', 'soak', 'strobe'];
+        const activeMode = testModes[data.test_mode || 0];
+        document.getElementById('btnTestRgbw').classList.toggle('active', activeMode === 'rgbw');
+        document.getElementById('btnTestWalker').classList.toggle('active', activeMode === 'walker');
+        document.getElementById('btnTestSoak').classList.toggle('active', activeMode === 'soak');
+        document.getElementById('btnTestStrobe').classList.toggle('active', activeMode === 'strobe');
+
+        // Channel Preview
+        renderChannels(data.channels || []);
+
+        // Universe table
+        renderUniverses(data.universes || []);
+      } catch (err) {
+        console.warn('Status poll error', err);
+      }
+    }
+
+    function toggleBadge(id, state) {
+      const el = document.getElementById(id);
+      if (state) {
+        el.classList.add('flash');
+      } else {
+        el.classList.remove('flash');
+      }
+    }
+
+    function renderChannels(chs) {
+      const grid = document.getElementById('channelsGrid');
+      const names = ['Dim/Strobe', 'Red', 'Green', 'Blue', 'White', 'Pattern', 'Audio FX', 'Speed', 'Size', 'Gain'];
+      let html = '';
+      for (let i = 0; i < Math.min(chs.length, 12); i++) {
+        const val = chs[i];
+        const pct = Math.round((val / 255) * 100);
+        const name = names[i] || `Ch ${i+1}`;
+        html += `
+          <div class="ch-item">
+            <div class="ch-name">${name}</div>
+            <div class="ch-val">${val}</div>
+            <div class="ch-bar"><div class="ch-bar-fill" style="width: ${pct}%"></div></div>
+          </div>
+        `;
+      }
+      grid.innerHTML = html;
+    }
+
+    function renderUniverses(univs) {
+      const tbody = document.getElementById('univTableBody');
+      if (univs.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--text-muted);">No active stream received</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = univs.map(u => `
+        <tr>
+          <td>${u.universe}</td>
+          <td>${u.source}</td>
+          <td><span class="pill ${u.healthy ? 'pill-green' : 'pill-orange'}">${u.healthy ? 'Active' : 'Timeout'}</span></td>
+          <td>${u.age_ms} ms</td>
+        </tr>
+      `).join('');
+    }
+
+    function updateLockUI(locked) {
+      const btn = document.getElementById('btnToggleLock');
+      const icon = document.getElementById('lockIcon');
+      const text = document.getElementById('lockText');
+      const rigAlert = document.getElementById('rigLockAlert');
+      const cfgAlert = document.getElementById('configLockAlert');
+      const cfgForm = document.getElementById('configForm');
+
+      btn.classList.toggle('locked', locked);
+      icon.textContent = locked ? '🔒' : '🔓';
+      text.textContent = locked ? 'Show Locked' : 'Unlocked';
+
+      rigAlert.style.display = locked ? 'flex' : 'none';
+      cfgAlert.style.display = locked ? 'flex' : 'none';
+
+      // Disable/enable form inputs
+      if (cfgForm) {
+        const inputs = cfgForm.querySelectorAll('input, select, button');
+        inputs.forEach(el => {
+          if (el.id !== 'btnToggleLock') {
+            el.disabled = locked;
+          }
+        });
+      }
+    }
+
+    async function toggleShowLock() {
+      const targetState = !isLocked;
+      const res = await fetch('/api/lock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ show_lock: targetState })
+      });
+      if (res.ok) {
+        isLocked = targetState;
+        updateLockUI(isLocked);
+      }
+    }
+
+    async function setTestPattern(mode) {
+      if (isLocked) {
+        alert('Node is LOCKED for live show. Unlock node first.');
+        return;
+      }
+      await fetch('/api/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: mode })
+      });
+    }
+
+    async function applyCustomColor() {
+      if (isLocked) return;
+      const hex = document.getElementById('customColorInput').value;
+      const r = parseInt(hex.substr(1, 2), 16);
+      const g = parseInt(hex.substr(3, 2), 16);
+      const b = parseInt(hex.substr(5, 2), 16);
+      await quickColor(r, g, b);
+    }
+
+    async function quickColor(r, g, b) {
+      if (isLocked) {
+        alert('Node is LOCKED for live show. Unlock node first.');
+        return;
+      }
+      await fetch('/api/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'color', color: [r, g, b] })
+      });
+    }
+
+    async function loadConfig() {
+      try {
+        const res = await fetch('/api/config');
+        if (!res.ok) return;
+        const cfg = await res.json();
+        document.getElementById('cfgNodeName').value = cfg.node.name;
+        document.getElementById('cfgBindIp').value = cfg.network.bind_ip;
+        document.getElementById('cfgArtnet').value = cfg.network.artnet ? 'true' : 'false';
+        document.getElementById('cfgSacn').value = cfg.network.sacn ? 'true' : 'false';
+
+        if (cfg.fixture && cfg.fixture.length > 0) {
+          const f = cfg.fixture[0];
+          document.getElementById('cfgPersonality').value = f.personality;
+          document.getElementById('cfgUniverse').value = f.universe;
+          document.getElementById('cfgAddress').value = f.address;
+          document.getElementById('cfgSpanMode').value = f.universe_span || 'per_170px';
+        }
+
+        if (cfg.output && cfg.output.length > 0) {
+          const o = cfg.output[0];
+          document.getElementById('cfgColorOrder').value = o.color_order;
+          document.getElementById('cfgPixels').value = o.pixels;
+          document.getElementById('cfgPsuMax').value = o.psu_max_current_ma;
+        }
+
+        if (cfg.failsafe) {
+          document.getElementById('cfgFailsafePolicy').value = cfg.failsafe.on_data_loss;
+        }
+      } catch (e) {
+        console.error('Failed to load config', e);
+      }
+    }
+
+    async function saveConfig(ev) {
+      ev.preventDefault();
+      if (isLocked) {
+        alert('Node is LOCKED. Cannot apply changes.');
+        return;
+      }
+
+      const body = {
+        node: {
+          name: document.getElementById('cfgNodeName').value,
+          show_lock: isLocked
+        },
+        network: {
+          bind_ip: document.getElementById('cfgBindIp').value,
+          artnet: document.getElementById('cfgArtnet').value === 'true',
+          sacn: document.getElementById('cfgSacn').value === 'true'
+        },
+        failsafe: {
+          on_data_loss: document.getElementById('cfgFailsafePolicy').value,
+          hold_timeout_sec: 10,
+          fade_duration_sec: 3
+        },
+        output: [{
+          id: 'out1',
+          driver: 'spi_ws281x',
+          device: '/dev/spidev0.0',
+          chip: 'ws2811',
+          color_order: document.getElementById('cfgColorOrder').value,
+          pixels: parseInt(document.getElementById('cfgPixels').value),
+          psu_max_current_ma: parseInt(document.getElementById('cfgPsuMax').value)
+        }],
+        fixture: [{
+          output: 'out1',
+          pixel_range: [0, parseInt(document.getElementById('cfgPixels').value) - 1],
+          personality: document.getElementById('cfgPersonality').value,
+          white_mode: 'rgb_blend',
+          universe_span: document.getElementById('cfgSpanMode').value,
+          universe: parseInt(document.getElementById('cfgUniverse').value),
+          address: parseInt(document.getElementById('cfgAddress').value)
+        }]
+      };
+
+      try {
+        const res = await fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+
+        if (res.ok) {
+          const alertEl = document.getElementById('configSuccessAlert');
+          alertEl.style.display = 'flex';
+          setTimeout(() => { alertEl.style.display = 'none'; }, 4000);
+        } else {
+          const err = await res.text();
+          alert('Failed to save config: ' + err);
+        }
+      } catch (err) {
+        alert('Save error: ' + err);
+      }
+    }
+
+    // Polling timer
+    setInterval(fetchStatus, 500);
+    fetchStatus();
+    loadConfig();
+  </script>
+</body>
+</html>

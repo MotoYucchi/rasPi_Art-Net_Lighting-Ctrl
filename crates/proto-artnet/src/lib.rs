@@ -238,6 +238,137 @@ pub fn write_art_dmx(
     Ok(total_len)
 }
 
+/// Configuration for building an ArtPollReply packet
+#[derive(Debug, Clone)]
+pub struct ArtPollReplyConfig<'a> {
+    pub ip: [u8; 4],
+    pub port: u16,
+    pub vers_info: u16,
+    pub net_switch: u8,
+    pub sub_switch: u8,
+    pub oem: u16,
+    pub status1: u8,
+    pub esta_man: u16,
+    pub short_name: &'a str,
+    pub long_name: &'a str,
+    pub node_report: &'a str,
+    pub num_ports: u16,
+    pub port_types: [u8; 4],
+    pub good_input: [u8; 4],
+    pub good_output: [u8; 4],
+    pub sw_in: [u8; 4],
+    pub sw_out: [u8; 4],
+    pub mac: [u8; 6],
+    pub bind_ip: [u8; 4],
+}
+
+impl<'a> Default for ArtPollReplyConfig<'a> {
+    fn default() -> Self {
+        Self {
+            ip: [0, 0, 0, 0],
+            port: ARTNET_PORT,
+            vers_info: 0x0100,
+            net_switch: 0,
+            sub_switch: 0,
+            oem: 0x00FF,
+            status1: 0xD0,
+            esta_man: 0x7FF0,
+            short_name: "PixelNode",
+            long_name: "Raspberry Pi Art-Net WS2811 Pixel Controller",
+            node_report: "#0001 [0000] OK - Ready",
+            num_ports: 1,
+            port_types: [0x80, 0, 0, 0], // Port 0 is DMX512 output
+            good_input: [0; 4],
+            good_output: [0x80, 0, 0, 0], // Data being output
+            sw_in: [0; 4],
+            sw_out: [0, 0, 0, 0],
+            mac: [0; 6],
+            bind_ip: [0, 0, 0, 0],
+        }
+    }
+}
+
+/// Minimum size of an ArtPollReply packet in bytes
+pub const ART_POLL_REPLY_LEN: usize = 239;
+
+/// Serializes an ArtPollReply packet into `buf`.
+/// Returns number of bytes written (239).
+pub fn write_art_poll_reply(
+    buf: &mut [u8],
+    cfg: &ArtPollReplyConfig<'_>,
+) -> Result<usize, ()> {
+    if buf.len() < ART_POLL_REPLY_LEN {
+        return Err(());
+    }
+
+    buf[..ART_POLL_REPLY_LEN].fill(0);
+
+    // 0..8: Art-Net header
+    buf[0..8].copy_from_slice(ARTNET_HEADER.as_slice());
+    // 8..10: OpCode PollReply (0x2100 in little-endian -> 0x00, 0x21)
+    buf[8..10].copy_from_slice(&u16::to_le_bytes(u16::from(OpCode::PollReply)));
+    // 10..14: IP Address
+    buf[10..14].copy_from_slice(&cfg.ip);
+    // 14..16: Port (little endian)
+    buf[14..16].copy_from_slice(&u16::to_le_bytes(cfg.port));
+    // 16..18: Version (big-endian)
+    buf[16..18].copy_from_slice(&cfg.vers_info.to_be_bytes());
+    // 18: NetSwitch
+    buf[18] = cfg.net_switch;
+    // 19: SubSwitch
+    buf[19] = cfg.sub_switch;
+    // 20..22: Oem (big-endian)
+    buf[20..22].copy_from_slice(&cfg.oem.to_be_bytes());
+    // 22: UbeaVersion
+    buf[22] = 0;
+    // 23: Status1
+    buf[23] = cfg.status1;
+    // 24..26: EstaMan (little-endian)
+    buf[24..26].copy_from_slice(&cfg.esta_man.to_le_bytes());
+
+    // 26..44: ShortName (max 17 chars + null)
+    let s_bytes = cfg.short_name.as_bytes();
+    let s_len = s_bytes.len().min(17);
+    buf[26..26 + s_len].copy_from_slice(&s_bytes[..s_len]);
+
+    // 44..108: LongName (max 63 chars + null)
+    let l_bytes = cfg.long_name.as_bytes();
+    let l_len = l_bytes.len().min(63);
+    buf[44..44 + l_len].copy_from_slice(&l_bytes[..l_len]);
+
+    // 108..172: NodeReport (max 63 chars + null)
+    let r_bytes = cfg.node_report.as_bytes();
+    let r_len = r_bytes.len().min(63);
+    buf[108..108 + r_len].copy_from_slice(&r_bytes[..r_len]);
+
+    // 172..174: NumPorts (Hi, Lo)
+    buf[172..174].copy_from_slice(&cfg.num_ports.to_be_bytes());
+
+    // 174..178: PortTypes
+    buf[174..178].copy_from_slice(&cfg.port_types);
+    // 178..182: GoodInput
+    buf[178..182].copy_from_slice(&cfg.good_input);
+    // 182..186: GoodOutput
+    buf[182..186].copy_from_slice(&cfg.good_output);
+    // 186..190: SwIn
+    buf[186..190].copy_from_slice(&cfg.sw_in);
+    // 190..194: SwOut
+    buf[190..194].copy_from_slice(&cfg.sw_out);
+
+    // 200: Style (0x00 = StNode)
+    buf[200] = 0x00;
+    // 201..207: MAC
+    buf[201..207].copy_from_slice(&cfg.mac);
+    // 207..211: BindIp
+    buf[207..211].copy_from_slice(&cfg.bind_ip);
+    // 211: BindIndex
+    buf[211] = 1;
+    // 212: Status2 (0x08 = DHCP & Art-Net 3/4)
+    buf[212] = 0x08;
+
+    Ok(ART_POLL_REPLY_LEN)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -267,5 +398,20 @@ mod tests {
     fn test_invalid_header() {
         let garbage = [0u8; 32];
         assert_eq!(parse_artnet(&garbage), Err(ParseError::InvalidHeader));
+    }
+
+    #[test]
+    fn test_write_art_poll_reply() {
+        let mut buf = [0u8; 300];
+        let mut cfg = ArtPollReplyConfig::default();
+        cfg.ip = [192, 168, 1, 100];
+        cfg.short_name = "StagePi";
+        let len = write_art_poll_reply(&mut buf, &cfg).unwrap();
+        assert_eq!(len, ART_POLL_REPLY_LEN);
+        assert_eq!(&buf[0..8], ARTNET_HEADER);
+        // OpCode 0x2100 in LE: [0x00, 0x21]
+        assert_eq!(&buf[8..10], &[0x00, 0x21]);
+        assert_eq!(&buf[10..14], &[192, 168, 1, 100]);
+        assert_eq!(&buf[26..33], b"StagePi");
     }
 }
