@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Fixture>
+  <Information>
+    <Manufacturer>PixelNode</Manufacturer>
+    <Model>WS2811 Strip Node</Model>
+    <Author>motoyucchi</Author>
+    <Version>1.0</Version>
+    <Type>Color Changer</Type>
+  </Information>
+  <Mode Name="Preset 7ch" Channels="7">
+    <Channel Index="1" Name="Dimmer / Strobe" Type="Shutter">
+      <Range Min="0" Max="7" Name="Blackout" Preset="Off"/>
+      <Range Min="8" Max="134" Name="Dimmer 0-100%" Preset="Dimmer"/>
+      <Range Min="135" Max="239" Name="Strobe Slow-Fast" Preset="Strobe"/>
+      <Range Min="240" Max="255" Name="Full Open" Preset="Open"/>
+    </Channel>
+    <Channel Index="2" Name="Red" Type="Red">
+      <Range Min="0" Max="255" Name="Red 0-100%"/>
+    </Channel>
+    <Channel Index="3" Name="Green" Type="Green">
+      <Range Min="0" Max="255" Name="Green 0-100%"/>
+    </Channel>
+    <Channel Index="4" Name="Blue" Type="Blue">
+      <Range Min="0" Max="255" Name="Blue 0-100%"/>
+    </Channel>
+    <Channel Index="5" Name="White" Type="White">
+      <Range Min="0" Max="255" Name="White 0-100%"/>
+    </Channel>
+    <Channel Index="6" Name="Pattern" Type="Effect">
+      <Range Min="0" Max="0" Name="Static"/>
+      <Range Min="1" Max="63" Name="Chase"/>
+      <Range Min="64" Max="127" Name="Sine Wave"/>
+      <Range Min="128" Max="191" Name="Rainbow"/>
+      <Range Min="192" Max="255" Name="Dynamic FX"/>
+    </Channel>
+    <Channel Index="7" Name="Audio Sync" Type="Effect">
+      <Range Min="0" Max="0" Name="Off (Ch6 Pattern)"/>
+      <Range Min="1" Max="31" Name="Master Pulse (RMS)"/>
+      <Range Min="32" Max="63" Name="Kick Pump (Flash)"/>
+      <Range Min="64" Max="95" Name="Bass Wave"/>
+      <Range Min="96" Max="127" Name="Beat Step"/>
+      <Range Min="128" Max="159" Name="Tempo BPM Sync"/>
+      <Range Min="160" Max="191" Name="Snare Flash"/>
+      <Range Min="192" Max="255" Name="Spectrum VU"/>
+    </Channel>
+  </Mode>
+</Fixture>

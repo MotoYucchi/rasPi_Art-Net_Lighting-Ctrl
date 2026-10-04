@@ -1,0 +1,76 @@
+// ChamSys MagicQ Head Definition File
+// PixelNode - WS2811 Strip (Preset 7ch)
+
+NAME "PixelNode WS2811 Strip"
+SHORTNAME "PxNode7"
+MANUFACTURER "PixelNode"
+
+CHANNELS 7
+DIPSWITCH 0
+
+// Channel 1: Dimmer / Strobe
+CHAN 1
+NAME "Dim/Strobe"
+TYPE INTENSITY
+RANGE 0 7 "Blackout"
+RANGE 8 134 "Dimmer 0-100%"
+RANGE 135 239 "Strobe Slow-Fast"
+RANGE 240 255 "Full Open"
+DEFAULT 0
+
+// Channel 2: Red
+CHAN 2
+NAME "Red"
+TYPE COLOUR
+COLOUR RED
+RANGE 0 255 "Red 0-100%"
+DEFAULT 0
+
+// Channel 3: Green
+CHAN 3
+NAME "Green"
+TYPE COLOUR
+COLOUR GREEN
+RANGE 0 255 "Green 0-100%"
+DEFAULT 0
+
+// Channel 4: Blue
+CHAN 4
+NAME "Blue"
+TYPE COLOUR
+COLOUR BLUE
+RANGE 0 255 "Blue 0-100%"
+DEFAULT 0
+
+// Channel 5: White
+CHAN 5
+NAME "White"
+TYPE COLOUR
+COLOUR WHITE
+RANGE 0 255 "White 0-100%"
+DEFAULT 0
+
+// Channel 6: Pattern
+CHAN 6
+NAME "Pattern"
+TYPE BEAM
+RANGE 0 0 "Static"
+RANGE 1 63 "Chase"
+RANGE 64 127 "Sine Wave"
+RANGE 128 191 "Rainbow"
+RANGE 192 255 "Dynamic FX"
+DEFAULT 0
+
+// Channel 7: Audio Sync
+CHAN 7
+NAME "Audio Sync"
+TYPE BEAM
+RANGE 0 0 "Off (Use Ch6 Pattern)"
+RANGE 1 31 "Master Pulse (RMS)"
+RANGE 32 63 "Kick Pump (Flash)"
+RANGE 64 95 "Bass Wave"
+RANGE 96 127 "Beat Step"
+RANGE 128 159 "Tempo BPM Sync"
+RANGE 160 191 "Snare Flash"
+RANGE 192 255 "Spectrum VU"
+DEFAULT 0

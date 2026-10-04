@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GDTF DataVersion="1.2">
+  <FixtureType Name="PixelNode WS2811 Strip" ShortName="PxNode7" Manufacturer="PixelNode" Description="High-reliability Art-Net/sACN to WS2811 Pixel LED Node">
+    <DMXModes>
+      <DMXMode Name="Preset 7ch" Geometry="Body">
+        <DMXChannels>
+          <DMXChannel Offset="1" Geometry="Body" Highlight="255">
+            <LogicalChannel Attribute="Shutter1">
+              <ChannelFunction Name="Dimmer / Strobe" Attribute="Shutter1" DMXFrom="0" DMXTo="255" Default="0">
+                <ChannelSet Name="Blackout" DMXFrom="0" DMXTo="7"/>
+                <ChannelSet Name="Dimmer" DMXFrom="8" DMXTo="134"/>
+                <ChannelSet Name="Strobe" DMXFrom="135" DMXTo="239"/>
+                <ChannelSet Name="Full Open" DMXFrom="240" DMXTo="255"/>
+              </ChannelFunction>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel Offset="2" Geometry="Body" Highlight="255">
+            <LogicalChannel Attribute="ColorAdd_R">
+              <ChannelFunction Name="Red" Attribute="ColorAdd_R" DMXFrom="0" DMXTo="255" Default="0"/>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel Offset="3" Geometry="Body" Highlight="255">
+            <LogicalChannel Attribute="ColorAdd_G">
+              <ChannelFunction Name="Green" Attribute="ColorAdd_G" DMXFrom="0" DMXTo="255" Default="0"/>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel Offset="4" Geometry="Body" Highlight="255">
+            <LogicalChannel Attribute="ColorAdd_B">
+              <ChannelFunction Name="Blue" Attribute="ColorAdd_B" DMXFrom="0" DMXTo="255" Default="0"/>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel Offset="5" Geometry="Body" Highlight="255">
+            <LogicalChannel Attribute="ColorAdd_W">
+              <ChannelFunction Name="White" Attribute="ColorAdd_W" DMXFrom="0" DMXTo="255" Default="0"/>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel Offset="6" Geometry="Body" Highlight="0">
+            <LogicalChannel Attribute="Control1">
+              <ChannelFunction Name="Pattern" Attribute="Control1" DMXFrom="0" DMXTo="255" Default="0">
+                <ChannelSet Name="Static" DMXFrom="0" DMXTo="0"/>
+                <ChannelSet Name="Chase" DMXFrom="1" DMXTo="63"/>
+                <ChannelSet Name="Sine Wave" DMXFrom="64" DMXTo="127"/>
+                <ChannelSet Name="Rainbow" DMXFrom="128" DMXTo="191"/>
+                <ChannelSet Name="Dynamic" DMXFrom="192" DMXTo="255"/>
+              </ChannelFunction>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel Offset="7" Geometry="Body" Highlight="0">
+            <LogicalChannel Attribute="Control2">
+              <ChannelFunction Name="Audio Sync" Attribute="Control2" DMXFrom="0" DMXTo="255" Default="0">
+                <ChannelSet Name="Off" DMXFrom="0" DMXTo="0"/>
+                <ChannelSet Name="Master Pulse" DMXFrom="1" DMXTo="31"/>
+                <ChannelSet Name="Kick Pump" DMXFrom="32" DMXTo="63"/>
+                <ChannelSet Name="Bass Wave" DMXFrom="64" DMXTo="95"/>
+                <ChannelSet Name="Beat Step" DMXFrom="96" DMXTo="127"/>
+                <ChannelSet Name="Tempo Sync" DMXFrom="128" DMXTo="159"/>
+                <ChannelSet Name="Snare Flash" DMXFrom="160" DMXTo="191"/>
+                <ChannelSet Name="Spectrum VU" DMXFrom="192" DMXTo="255"/>
+              </ChannelFunction>
+            </LogicalChannel>
+          </DMXChannel>
+        </DMXChannels>
+      </DMXMode>
+    </DMXModes>
+  </FixtureType>
+</GDTF>
