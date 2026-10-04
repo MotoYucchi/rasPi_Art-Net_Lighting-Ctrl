@@ -1,0 +1,11 @@
+[package]
+name = "output"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+engine = { path = "../engine" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+spidev = "0.6"

@@ -1,0 +1,39 @@
+# /etc/pixelnode/config.toml
+# Pixel LED Node Configuration (Raspberry Pi 3B / x86_64)
+
+[node]
+name = "Stage-WS2811-Node1"
+show_lock = false               # If true, locks RDM SET and Web configuration changes during live show
+
+[network]
+artnet = true                   # Listen on UDP 6454
+sacn = true                     # Listen on UDP 5568 & join E1.31 multicast groups
+bind_ip = "0.0.0.0"
+
+[audio]
+enabled = true
+listen_udp_port = 8765          # Broadcast port from audio-host-sender
+timeout_ms = 500               # Revert to neutral modulation when host audio stream stops
+
+[failsafe]
+on_data_loss = "hold"           # hold (keep last frame) | hold_then_fade | blackout
+hold_timeout_sec = 10          # Seconds to hold before fadeout (if hold_then_fade)
+fade_duration_sec = 3           # Fadeout duration in seconds
+
+[[output]]
+id = "out1"
+driver = "spi_ws281x"           # spi_ws281x (Raspberry Pi SPI) | virtual (headless/sim)
+device = "/dev/spidev0.0"       # GPIO10 MOSI (Physical Pin 19)
+chip = "ws2811"                 # ws2811 (24V) | ws2812b
+color_order = "brg"             # brg | rgb | grb (matches your strip batch wiring)
+pixels = 300                    # Total number of controlled LED pixels
+psu_max_current_ma = 15000       # Automatic Brightness Limiter (ABL) current cap (15A)
+
+[[fixture]]
+output = "out1"
+pixel_range = [0, 299]          # Pixel index range [start, end]
+personality = "preset_7ch"      # preset_7ch (7ch address saver) | standard (12ch) | pixel_direct (RGB)
+white_mode = "rgb_blend"        # rgb_blend (expand White to RGB) | ignore
+universe_span = "per_170px"     # per_170px (170px per universe, industry standard) | packed
+universe = 1                    # DMX Start Universe (Art-Net / sACN)
+address = 1                     # DMX Start Channel (1..=512)

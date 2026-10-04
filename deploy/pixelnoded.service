@@ -1,0 +1,27 @@
+[Unit]
+Description=Pixel LED Art-Net / sACN Real-time Node Daemon
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/pixelnoded /etc/pixelnode/config.toml
+Restart=always
+RestartSec=0
+StartLimitIntervalSec=0
+
+# Real-time scheduling priority permissions
+LimitRTPRIO=99
+LimitMEMLOCK=infinity
+
+# System hardening & stability
+ProtectHome=read-only
+ProtectSystem=full
+CapabilityBoundingSet=CAP_SYS_NICE
+
+# Journal logging in RAM (volatile)
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

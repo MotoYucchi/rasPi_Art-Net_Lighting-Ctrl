@@ -1,0 +1,9 @@
+[package]
+name = "dmx-universe"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+proto-artnet = { path = "../proto-artnet" }
+proto-sacn = { path = "../proto-sacn" }

@@ -1,0 +1,13 @@
+[package]
+name = "pxtool"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+proto-artnet = { path = "../../crates/proto-artnet" }
+proto-sacn = { path = "../../crates/proto-sacn" }
+audio-proto = { path = "../../crates/audio-proto" }
+engine = { path = "../../crates/engine" }
+output = { path = "../../crates/output" }

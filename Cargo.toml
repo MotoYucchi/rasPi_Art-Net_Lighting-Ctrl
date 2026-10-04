@@ -1,0 +1,26 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/proto-artnet",
+    "crates/proto-sacn",
+    "crates/dmx-universe",
+    "crates/fixture",
+    "crates/engine",
+    "crates/output",
+    "crates/audio-proto",
+    "bins/pixelnoded",
+    "bins/pxtool",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["motoyucchi"]
+license = "MIT OR Apache-2.0"
+
+[profile.release]
+panic = "abort"
+lto = true
+codegen-units = 1
+opt-level = 3
+overflow-checks = false

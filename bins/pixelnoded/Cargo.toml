@@ -1,0 +1,18 @@
+[package]
+name = "pixelnoded"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+proto-artnet = { path = "../../crates/proto-artnet" }
+proto-sacn = { path = "../../crates/proto-sacn" }
+audio-proto = { path = "../../crates/audio-proto" }
+dmx-universe = { path = "../../crates/dmx-universe" }
+fixture = { path = "../../crates/fixture" }
+engine = { path = "../../crates/engine" }
+output = { path = "../../crates/output" }
