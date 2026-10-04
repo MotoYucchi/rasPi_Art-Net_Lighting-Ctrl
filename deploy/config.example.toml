@@ -1,5 +1,5 @@
 # /etc/pixelnode/config.toml
-# Pixel LED Node Configuration (Raspberry Pi 3B / x86_64)
+# PixelNode Configuration (Raspberry Pi 3B / x86_64)
 
 [node]
 name = "Stage-WS2811-Node1"

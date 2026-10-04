@@ -1,7 +1,13 @@
-# Pixel LED ノード 設計書（仮称: `pixelnode`）
+# PixelNode アーキテクチャ & 設計仕様書（Architecture & Design Specification）
 
-Art-Net 4 (RDM含む) / sACN (E1.31) で DMX を受信し、Pixel LED (WS2811 / WS2812B 等) を駆動する Rust 製ノード。
+**PixelNode**: Art-Net 4 (RDM含む) / sACN (E1.31) で DMX を受信し、Pixel LED (WS2811 / WS2812B 等) を超高信頼・超低遅延で自律駆動するプロフェッショナル照明コントローラーシステム。  
 対象: Raspberry Pi 3B (aarch64) を主ターゲット、x86_64 Linux を副ターゲットとする。
+
+- **システム総称 / 製品名**: **PixelNode**
+- **メインデーモン**: `pixelnoded` (Art-Net/sACN 受信・マージ・レンダリング・SPI出力・Web UI)
+- **現場診断・設定CLI**: `pxtool` (リグチェック、監視、動的設定、ステータス取得)
+- **音声解析デーモン**: `audio-analyzerd` (Pi ローカル USB 音声解析)
+- **ホストPC側音声送信機**: `audio-host-sender` (Host PC 音声キャプチャ・ブロードキャスト)
 
 > [!IMPORTANT]
 > 設計方針の最上位は **「ショー中に絶対に止まらない・止まっても見えない」**。
@@ -285,15 +291,16 @@ rasPi_Art-Net_Lighting-Ctrl/
 | **3** | **Green** | 0–255 | ベース色 緑 | 0 |
 | **4** | **Blue** | 0–255 | ベース色 青 | 0 |
 | **5** | **White** | 0–255 | ベース色 白（WS2811時はRGB合成または無視を選択可） | 0 |
-| **6** | **点灯 Pattern** | 0<br>1–255 | **Static（ベース色での単純点灯）**<br>**専用点灯パターン（チェイス、ウェーブ、グラデーション等）** | 0 |
-| **7** | **音声同期** | 0<br>1–255 | **Off（ch 6 の点灯パターンに従う）**<br>**専用の音声自動制御パターン（音量パルス、キック連動、スペクトラム等）** | 0 |
+| **6** | **点灯 Pattern** | 0–255 | **0–7 Static / 8–15 Chase / …（等間隔8値幅・全24プロパターン）**<br>※詳細は別紙『DMX チャンネル・アドレススロット仕様書』参照 | 0 |
+| **7** | **音声同期 (Audio Sync)** | 0–255 | **0–7 Off / 8–15 Master Pulse / …（等間隔8値幅・全24プロパターン）**<br>※ch 7 ≥ 8 で最優先オーバーライド | 0 |
 
 #### 点灯 Pattern (ch 6) と 音声同期 (ch 7) の優先度ルール
-- **ch 7 (音声同期) = 0 のとき**:
+- **ch 7 (音声同期) = 0 – 7 (スロット 0: Off) のとき**:
   - 音声同期は無効。**ch 6 (点灯 Pattern)** で指定されたパターンが通常通り動作。
-- **ch 7 (音声同期) ≥ 1 のとき（音声演出優先）**:
+- **ch 7 (音声同期) ≥ 8 (スロット 1–31: On) のとき（音声演出優先）**:
   - **ch 7 で指定された専用の「音声自動制御パターン」が最優先で動作**（ch 6 のパターンをオーバーライド）。
   - ch 2〜5 のベース色と ch 1 のマスター調光/ストロボは、音声自動演出に対してもそのまま適用されます。
+  - 音声パケットが途絶（`audio.is_none()`）した場合は、**暗転することなく自動的に ch 6 の自律パターンへ瞬時にフォールバック**（FMEA フェイルセーフ設計）。
   - **オペレーション利点**: 卓オペレーターは通常 ch 7 を 0 にしておき、サビやソロなど音に連動させたい瞬間だけ ch 7 を上げるだけで、即座に音同期演出へ切り替わります。
 
 ---
@@ -328,10 +335,10 @@ rasPi_Art-Net_Lighting-Ctrl/
 | 4 | Green | 0–255 | 0 |
 | 5 | Blue | 0–255 | 0 |
 | 6 | White | 0–255 | 0 |
-| 7 | Pattern | 0–3 Static / 4–7 Pattern 1 / … （4値幅スロット） | 0 |
+| 7 | Pattern | 0–7 Static / 8–15 Pattern 1 / … （等間隔8値幅スロット） | 0 |
 | 8 | Pattern Speed | 0–7 既定速度 / 8–127 正方向 遅→速 / 128–135 停止 / 136–255 逆方向 遅→速 | 0 |
 | 9 | Pattern Size | 0 既定 / 1–255 パターン固有パラメータ（幅・密度等） | 0 |
-| 10 | Audio Mode | 0–7 Off / 8–15 Mode 1 / …（8値幅スロット） | 0 |
+| 10 | Audio Mode | 0–7 Off / 8–15 Mode 1 / …（等間隔8値幅スロット） | 0 |
 | 11 | Audio Gain | 0 AGC（自動）/ 1–255 手動ゲイン | 0 |
 | 12 | Control | 0–9 なし / リセット等（3秒保持で実行） | 0 |
 
@@ -548,18 +555,37 @@ pub struct AudioFeaturePacket {
 
 ### 10.4 Audio Mode 変調マトリクス
 
-Standard モードの ch 10 で選択可能な変調動作：
+Preset 7ch の ch 7、および Standard 12ch の ch 10 で選択可能なオーディオリアクティブ変調動作（等間隔8値幅スロット規格・全24プロパターン）：
+※全24パターンの完全なDMXスロット対照表・アルゴリズム・演出意図は、別紙『[DMX チャンネル・アドレススロット仕様書 (Preset 7ch)](dmx_channel_slot_specification.md)』に網羅されています。
 
-| Mode | モード名 | 入力特徴量 | 変調対象 | 演出効果 |
-|------|----------|------------|----------|----------|
-| 0 | Off | ― | なし | 通常の DMX パターン描画 |
-| 1 | Master Pulse | RMS レベル | Dimmer | 音量に合わせて全体の明るさが呼吸 |
-| 2 | Kick Pump | Kick Trigger | Dimmer (瞬時+100%→指数減衰) | キックの打音に合わせて強烈にフラッシュ |
-| 3 | Bass Wave | Sub-Bass + Bass | Pattern Size | 低音のうねりに合わせてパターンの幅が伸縮 |
-| 4 | Beat Step | Beat Trigger | Pattern Phase (+1ステップ) | 拍頭ごとにチェイスが1コマずつ進む |
-| 5 | Tempo Sync | BPM & Beat Phase | Pattern Speed | パターンの進行速度を曲のBPMに完全ロック |
-| 6 | Snare Flash | Snare Trigger | Color B (White/反転色) | スネアのタイミングで一瞬色が変わる |
-| 7 | Spectrum VU | 7バンド エネルギー | ピクセル配置 (LEDバー) | ストリップが7バンドまたは全域のVUメーター化 |
+| Mode (Slot) | DMX値 | モード名 | 入力特徴量 | 演出効果概要 |
+|:---:|:---:|----------|------------|----------|
+| **0** | **0–7** | **Off** | ― | 通常の DMX パターン描画（ch 6 に従う） |
+| **1** | **8–15** | **Master Pulse** | RMS レベル | 音量ダイナミクスに追従して全体の明るさが呼吸 |
+| **2** | **16–23** | **Kick Pump Flash** | Kick Trigger + Sub-Bass | キック打音で100% White閃光、胴鳴りで指数減衰 |
+| **3** | **24–31** | **Snare Snap Flash** | Snare + High-Mid | 2・4拍スネアで瞬時白閃光、High-Mid反転色残光 |
+| **4** | **32–39** | **Hi-Hat Glitter** | HiHat + Brilliance | 高速ハット刻み・シンバル打音で星屑スパーク |
+| **5** | **40–47** | **Drum Kit 3-Way** | Kick + Snare + HiHat | 中央=Kick、両脇=Snare、外縁=HiHatの空間分割 |
+| **6** | **48–55** | **Shockwave Blast** | Kick + Beat Phase | キックの瞬間に中央から音速衝撃波リング拡散 |
+| **7** | **56–63** | **Beat Step Walk** | Beat Trigger | 拍頭ごとにチェイスが1ブロックずつコマ送り歩進 |
+| **8** | **64–71** | **Beat Invert Strobe** | Beat Phase | 表拍で点灯、裏拍で消灯のタイトな拍同期ストロボ |
+| **9** | **72–79** | **Linear 7-Band VU** | 7-Band Energy | ストリップを7分割した色相付き周波数イコライザー |
+| **10** | **80–87** | **Center-Out VU** | Peak / RMS Level | 中央から両端へ左右対称に伸縮するステレオVUバー |
+| **11** | **88–95** | **Pro Peak Hold VU** | RMS + Peak Level | 中央両開きVUバー ＋ 頂点ピークホールド浮遊ドット |
+| **12** | **96–103** | **Bass Wave Expand** | Sub-Bass + Bass | 低音の音圧でパターンの幅がゴムのように伸縮 |
+| **13** | **104–111** | **Sub-Bass Rumble** | Sub-Bass (30-60Hz) | 超低域のうなりに反応する重油のような低周波の波 |
+| **14** | **112–119** | **Vocal Ribbon** | Mid + High-Mid | 歌声フォルマント帯域にのみ反応する光のリボン |
+| **15** | **120–127** | **Spectral Centroid** | Spectral Centroid | 音色の明暗（ダーク〜ブライト）で色相リアルタイム変調 |
+| **16** | **128–135** | **Multi-Band Fountain** | 7バンド トランジェント | 各帯域アタック時に中央から固有色粒子が噴出 |
+| **17** | **136–143** | **BPM Master Tempo** | BPM + Beat Phase | 楽曲テンポ・フェーズに完全ロックした進行波 |
+| **18** | **144–151** | **Half/Double Tempo** | BPM + Beat Phase | 倍テンポ/ハーフタイム展開に追従する2倍速/半速波 |
+| **19** | **152–159** | **Drop Buildup & Blast**| 高域急上昇 + RMS | ビルドアップストロボ → ブレイク消灯 → ドロップ全開 |
+| **20** | **160–167** | **Dynamic Ambient** | RMS移動平均 | 静寂時は繊細な呼吸、爆音時はシャープな高輝度光線 |
+| **21** | **168–175** | **Audio Glitch** | Crest Factor | クレストファクター急変時に走るデジタルグリッチ |
+| **22** | **176–183** | **Acoustic Resonance** | Low-Mid/Mid アタック | 生楽器ADSRエンベロープ（急速アタック・自然指数減衰） |
+| **23** | **184–191** | **Bass Tunnel** | Bass + Beat Phase | キックと拍フェーズに連動する中心吸い込みトンネル |
+| **24** | **192–199** | **Silence Safe Fallback**| 無音検知 (RMS < 15) | 無音時に3000K電球色の温かな微光へ退避、音で即復帰 |
+| **25–31**| **200–255** | *(将来拡張用予約)* | ― | 安全のため基本色点灯へフォールバック |
 
 ---
 
@@ -619,8 +645,36 @@ white_mode = "rgb_blend"       # rgb_blend | ignore
 universe_span = "per_170px"    # pixel_direct時の跨ぎ方: per_170px (標準) | packed
 protocol = "auto"              # artnet | sacn | auto
 universe = 1
-address = 1
 ```
+
+---
+
+## 11.1 ヘッドレス運用向け Web 管理インターフェース & REST API
+
+本番環境（ステージトラス上やラック内）に設置されたヘッドレスの Raspberry Pi に対し、ブラウザ（スマホ・タブレット・PC）から直接状態監視と設定変更を行える Web UI および REST API を内蔵します。
+
+- **完全自律・ゼロCDN設計**: インターネット未接続のステージ現場でも完全に動作するよう、HTML/CSS/JS 全体をバイナリ内部に組み込み（`include_str!`）、外部依存ゼロでダークモード UI を提供。
+- **データプレーン完全保護**: Web UI（制御プレーン）の処理は独立バックグラウンドスレッドで動作し、50 FPS のリアルタイム描画ループ（データプレーン）へは非ブロッキングチャネル（`try_recv`）とアトミック変数でのみ連携。HTTP 通信が輻輳しても LED 出力のジッタやフレーム落ちは物理的に発生しない。
+- **機能一覧**:
+  1. **リアルタイムテレメトリ監視**: 描画 FPS（50.0 FPS）、総フレーム数、Art-Net / sACN 受信パケット数、ABL 推定消費電流（A/%）、DMX ch 1〜12 の値・進捗バー表示、接続ユニバース状態、音声同期ステータス（BPM / Energy / Kick / Snare / HiHat）。
+  2. **現場リグチェック（セルフテスト）**: 卓なしでブラウザから即座に点検パターン（RGBW順次、アドレスウォーカー、100%全点灯パワーソーク、高速ストロボ、任意カラー指定）を起動・停止。
+  3. **動的設定変更 & アトミック保存**: ノード名、バインドIP、パーソナリティ、ユニバース、チャンネル、ピクセル数、色順、フェイルセーフ設定をブラウザから編集し、`/etc/pixelnode/config.toml` にアトミック保存・即時適用。
+  4. **Show Lock（誤操作防止ロック）**: 本番ショウ中の誤操作を防ぐため、ロック時は Web UI および REST API からの設定変更・リグチェック割り込みを拒否（HTTP 403 Forbidden）。
+
+---
+
+## 11.2 Art-Net 自動検出（ArtPollReply レスポンダ）
+
+ChamSys MagicQ、grandMA、Resolume Arena、QLC+ などの照明卓・メディアサーバは、ネットワーク上のノードを発見するために `ArtPoll`（OpCode `0x2000`）ブロードキャストを送信します。
+本システムはこれに対し、規格準拠の `ArtPollReply`（OpCode `0x2100`、239バイト）を即座に応答します。
+
+- ノード名（ShortName: 例 `PixelNode`、LongName: 例 `PixelNode Art-Net WS2811 Controller`）
+- 物理バインドIP、ポート番号（6454）
+- ファームウェアバージョン、ESTA メーカーコード
+- バインドされた出力ポート数、プロトコル状態、バインドされたユニバース（Net / SubNet / Universe）
+- ノードレポート（例 `#0001 [0000] OK - 50 FPS`）
+
+照明卓の「Net Manager」や「Network Nodes」画面に自動的に本機が現れ、アドレスやIPの設定・パッチ当てが現場でワンクリックで行えます。
 
 ---
 

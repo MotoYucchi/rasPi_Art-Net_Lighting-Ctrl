@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
     name = "pxtool",
     author = "motoyucchi",
     version,
-    about = "Pixel LED Node Field Diagnostic, Configuration & Rig Check Utility",
+    about = "PixelNode Field Diagnostic, Configuration & Rig Check CLI Utility",
     after_help = "EXAMPLES:
   # Check live node telemetry (FPS, DMX channels, power, audio sync)
   pxtool status
@@ -271,6 +271,8 @@ struct StatusJson {
     max_psu_ma: u32,
     failsafe_active: bool,
     test_mode: u8,
+    #[serde(default)]
+    personality: Option<String>,
     channels: Vec<u8>,
     universes: Vec<UniverseJson>,
     audio: AudioJson,
@@ -395,19 +397,40 @@ fn main() {
                             }
 
                             println!("\n[LIVE CHANNEL VALUES]");
-                            let channel_names = [
-                                "Ch 1 [Dim/Strobe]",
-                                "Ch 2 [Red       ]",
-                                "Ch 3 [Green     ]",
-                                "Ch 4 [Blue      ]",
-                                "Ch 5 [White     ]",
-                                "Ch 6 [Pattern   ]",
-                                "Ch 7 [Audio Sync]",
-                                "Ch 8 [Speed     ]",
-                                "Ch 9 [Size      ]",
-                                "Ch10 [Audio Gain]",
-                            ];
-                            for (i, val) in st.channels.iter().take(10).enumerate() {
+                            let personality = st.personality.as_deref().unwrap_or("preset_7ch");
+                            let (channel_names, display_len) = if personality == "standard_12ch" || st.channels.len() > 7 {
+                                (
+                                    &[
+                                        "Ch 1 [Dimmer    ]",
+                                        "Ch 2 [Strobe    ]",
+                                        "Ch 3 [Red       ]",
+                                        "Ch 4 [Green     ]",
+                                        "Ch 5 [Blue      ]",
+                                        "Ch 6 [White     ]",
+                                        "Ch 7 [Pattern   ]",
+                                        "Ch 8 [Speed     ]",
+                                        "Ch 9 [Size      ]",
+                                        "Ch10 [Audio Mode]",
+                                        "Ch11 [Audio Gain]",
+                                        "Ch12 [Control   ]",
+                                    ][..],
+                                    12,
+                                )
+                            } else {
+                                (
+                                    &[
+                                        "Ch 1 [Dim/Strobe]",
+                                        "Ch 2 [Red       ]",
+                                        "Ch 3 [Green     ]",
+                                        "Ch 4 [Blue      ]",
+                                        "Ch 5 [White     ]",
+                                        "Ch 6 [Pattern   ]",
+                                        "Ch 7 [Audio Sync]",
+                                    ][..],
+                                    7,
+                                )
+                            };
+                            for (i, val) in st.channels.iter().take(display_len).enumerate() {
                                 let name = channel_names.get(i).copied().unwrap_or("Ch --");
                                 let pct = (*val as f32 / 255.0) * 100.0;
                                 println!("   {}: {:3} {} {:3.0}%", name, val, format_bar(*val, 16), pct);

@@ -1,4 +1,4 @@
-# Raspberry Pi 3B セットアップガイド（ライブ現場向け高安定化設定）
+# PixelNode Raspberry Pi 3B セットアップガイド（ライブ現場向け高安定化設定）
 
 Raspberry Pi 3B で WS2811 / WS2812B を SPI0（GPIO10）から駆動し、ライブ現場で絶対に停止・チラつきを起こさないためのハードウェア・OS設定手順です。
 

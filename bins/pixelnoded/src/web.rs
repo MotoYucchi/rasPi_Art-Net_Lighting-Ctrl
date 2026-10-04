@@ -70,6 +70,7 @@ struct StatusResponse<'a> {
     max_psu_ma: u32,
     failsafe_active: bool,
     test_mode: u8,
+    personality: String,
     channels: &'a [u8],
     universes: Vec<UniverseStatusInfo>,
     audio: AudioTelemetryInfo,
@@ -137,6 +138,12 @@ pub fn start_web_server(
                     let chs_slice = chs_guard.as_deref().map(|v| v.as_slice()).unwrap_or(&[]);
                     let univs = state.universes.read().map(|u| u.clone()).unwrap_or_default();
                     let audio = state.audio.read().map(|a| a.clone()).unwrap_or_default();
+                    let personality = state
+                        .config
+                        .read()
+                        .ok()
+                        .and_then(|cfg| cfg.fixture.first().map(|f| f.personality.clone()))
+                        .unwrap_or_else(|| "preset_7ch".to_string());
 
                     let status_payload = StatusResponse {
                         node_name,
@@ -151,6 +158,7 @@ pub fn start_web_server(
                         max_psu_ma: state.max_psu_ma.load(Ordering::Relaxed),
                         failsafe_active: state.failsafe_active.load(Ordering::Relaxed),
                         test_mode: state.test_mode.load(Ordering::Relaxed),
+                        personality,
                         channels: chs_slice,
                         universes: univs,
                         audio,

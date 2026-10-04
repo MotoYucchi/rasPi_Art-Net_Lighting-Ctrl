@@ -26,8 +26,8 @@ Example: `http://192.168.1.50:8080/`
 * **Render Performance**: Displays real-time rendering frame rate (50.0 FPS target) and total rendered frame counter.
 * **Network DMX Traffic**: Displays received packet counts for Art-Net and sACN (E1.31), with error status.
 * **Automatic Brightness Limiter (ABL)**: Live calculation of current draw in Amperes and percentage of power supply cap.
-* **Live Channel Value Preview**: Visual progress bars and numeric values for DMX channels 1–12 (Master Dimmer/Strobe, RGBW, Preset Pattern, Audio FX ID).
-* **Audio Transient Sync Status**: Live BPM counter, RMS energy meter, and real-time blinking trigger indicators for Kick, Snare, and Hi-Hat.
+* **Live Channel Value Preview**: Visual progress bars and numeric values for DMX channels (Master Dimmer/Strobe, RGBW, Preset Pattern, Audio Sync / Audio Mode).
+* **Audio Reactive Sync Status**: Live BPM counter, RMS energy meter, and real-time blinking trigger indicators for Kick, Snare, and Hi-Hat.
 * **Universe Subscriptions**: Status table showing active subscribed universes, protocol source (ArtNet / sACN), and stream age in milliseconds.
 
 ### 2. Rig Check / Self-Test View

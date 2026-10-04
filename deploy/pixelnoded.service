@@ -1,5 +1,5 @@
 [Unit]
-Description=Pixel LED Art-Net / sACN Real-time Node Daemon
+Description=PixelNode Art-Net / sACN Real-time Node Daemon
 After=network.target network-online.target
 Wants=network-online.target
 

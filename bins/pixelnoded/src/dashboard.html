@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PixelNode Control & Monitor</title>
+  <title>PixelNode — Lighting Control & Telemetry</title>
   <style>
     :root {
       --bg-base: #0f1117;
@@ -390,6 +390,19 @@
       font-size: 11px;
     }
     td { font-family: var(--font-mono); }
+    footer.app-footer {
+      max-width: 1280px;
+      margin: 40px auto 20px;
+      padding: 20px 24px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+    footer.app-footer a { color: var(--text-muted); text-decoration: none; }
+    footer.app-footer a:hover { color: var(--accent); }
   </style>
 </head>
 <body>
@@ -443,7 +456,7 @@
         </div>
 
         <div class="card">
-          <div class="card-title">Audio Transient Sync</div>
+          <div class="card-title">Audio Reactive Sync</div>
           <div class="stat-val" id="statAudioBpm">--- <span style="font-size:14px;color:var(--text-muted)">BPM</span></div>
           <div class="stat-sub" id="statAudioStatus">Disconnected</div>
           <div class="audio-triggers">
@@ -643,6 +656,11 @@
     </div>
   </main>
 
+  <footer class="app-footer">
+    <div><strong>PixelNode Lighting System</strong> &bull; <code>pixelnoded v0.1.0</code></div>
+    <div style="font-size:12px;">High-Reliability Art-Net 4 & sACN Node &bull; Deterministic Engine</div>
+  </footer>
+
   <script>
     let isLocked = false;
     let currentTab = 'overview';
@@ -719,7 +737,7 @@
         document.getElementById('btnTestStrobe').classList.toggle('active', activeMode === 'strobe');
 
         // Channel Preview
-        renderChannels(data.channels || []);
+        renderChannels(data.channels || [], data.personality || 'preset_7ch');
 
         // Universe table
         renderUniverses(data.universes || []);
@@ -737,11 +755,20 @@
       }
     }
 
-    function renderChannels(chs) {
+    function renderChannels(chs, personality) {
       const grid = document.getElementById('channelsGrid');
-      const names = ['Dim/Strobe', 'Red', 'Green', 'Blue', 'White', 'Pattern', 'Audio FX', 'Speed', 'Size', 'Gain'];
+      let names;
+      if (personality === 'standard_12ch' || chs.length > 7) {
+        names = ['Dimmer', 'Strobe', 'Red', 'Green', 'Blue', 'White', 'Pattern', 'Speed', 'Size', 'Audio Mode', 'Audio Gain', 'Control'];
+      } else if (personality === 'pixel_direct') {
+        names = ['Px 1 R', 'Px 1 G', 'Px 1 B', 'Px 2 R', 'Px 2 G', 'Px 2 B', 'Px 3 R', 'Px 3 G', 'Px 3 B', 'Px 4 R', 'Px 4 G', 'Px 4 B'];
+      } else {
+        // Default Preset 7ch
+        names = ['Dim/Strobe', 'Red', 'Green', 'Blue', 'White', 'Pattern', 'Audio Sync'];
+      }
       let html = '';
-      for (let i = 0; i < Math.min(chs.length, 12); i++) {
+      const displayCount = Math.min(chs.length, names.length);
+      for (let i = 0; i < displayCount; i++) {
         const val = chs[i];
         const pct = Math.round((val / 255) * 100);
         const name = names[i] || `Ch ${i+1}`;
