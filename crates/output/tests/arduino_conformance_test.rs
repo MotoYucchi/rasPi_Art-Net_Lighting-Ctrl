@@ -214,3 +214,42 @@ fn test_render_engine_and_serial_sink_pipeline() {
     let parsed = parse_packet(&captured).unwrap();
     assert_eq!(parsed.payload, packed_bytes.to_vec());
 }
+
+#[test]
+fn test_real_hardware_serial_port_if_connected() {
+    let dev = if Path::new("/dev/ttyUSB0").exists() {
+        "/dev/ttyUSB0"
+    } else if Path::new("/dev/ttyACM0").exists() {
+        "/dev/ttyACM0"
+    } else {
+        println!("No physical serial device connected, skipping hardware test.");
+        return;
+    };
+
+    println!("Detected real hardware serial device: {}", dev);
+    let mut sink = SerialMcuSink::open(dev, 115200).expect("Failed to open physical serial device");
+    assert_eq!(sink.device_path(), Some(dev));
+
+    // Send configuration packet (60 pixels, Hold failsafe mode = 1, timeout = 500ms)
+    sink.send_config(60, 1, 500).expect("Failed to send config to real hardware");
+
+    // Send DMX parameters (Master dimmer 255, Red 255, Green 120, Blue 0, Strobe 0, Pattern 8 (Sine breath))
+    sink.send_dmx_channels(255, 255, 120, 0, 0, 8, 0, 128, 128)
+        .expect("Failed to send DMX channels to real hardware");
+
+    // Send 50 frames of RGB pixels (simulating 50 FPS stream for 1 second)
+    let mut rgb_frame = vec![0u8; 180]; // 60 pixels * 3
+    for frame_idx in 0..50 {
+        for px in 0..60 {
+            let offset = px * 3;
+            rgb_frame[offset] = ((frame_idx * 5 + px * 4) % 256) as u8;       // R
+            rgb_frame[offset + 1] = ((frame_idx * 3 + px * 2) % 256) as u8;   // G
+            rgb_frame[offset + 2] = ((frame_idx * 7) % 256) as u8;            // B
+        }
+        sink.write_pixels(&rgb_frame)
+            .expect("Failed to stream pixel frame to real hardware");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+
+    println!("Successfully streamed 50 frames (9,000 pixel bytes) to {} at 115200 baud without errors!", dev);
+}
