@@ -71,15 +71,18 @@ Tests varying strip lengths to guarantee memory stability on the ATmega328P's 2 
 |:---:|:---:|:---|:---|
 | **10 px** | 30 bytes | Accent spotlight / Mini puck | Minimal packet latency |
 | **60 px** | 180 bytes | Standard 1-meter tape (60 LED/m) | Standard throughput (50 FPS) |
-| **120 px** | 360 bytes | High-density 2-meter tape | Buffer boundary handling |
+| **100 px** | 300 bytes | **Generic 60 LED/m 12V Tape (5m Reel)** | **Preset 2 field fixture profile** |
+| **160 px** | 480 bytes | **BTF-LIGHTING FCOB 24V (10m Reel)** | **Preset 1 high-density COB profile** |
 | **170 px** | 510 bytes | **Maximum Full DMX Universe (512 ch)** | **ATmega328P SRAM ceiling stress** |
 
 ### Phase 3: Color Order Permutation Matrix
-WS2811/WS2812B chips from different manufacturers use different internal shift register configurations. The suite verifies proper byte packing:
+WS2811/WS2812B chips from different manufacturers use different internal shift register configurations. The suite verifies proper byte packing across all permutations:
 - **`grb`**: Standard WS2812B / NeoPixel strips.
 - **`brg`**: Standard 12V/24V WS2811 bullet nodes and architectural neon strips.
-- **`rgb`**: Direct 1-to-1 mapping.
+- **`rgb`**: Direct 1-to-1 mapping (BTF-LIGHTING FCOB 24V).
+- **`rbg`**: Generic / No-brand 12V SMD strips with swapped blue/green PCB routing.
 - **`bgr`**: Common WS2811 alternative.
+- **`gbr`**: Special batch variant.
 
 ### Phase 4: DMX Personality Validation
 - **Preset 7ch**: Tests master dimmer, RGBW mixing, pattern slot selection, and audio bypass.

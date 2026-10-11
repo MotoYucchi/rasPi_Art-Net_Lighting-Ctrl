@@ -198,7 +198,44 @@ pxtool config validate /etc/pixelnode/config.toml
 **Output:**
 ```
 Validating configuration file: '/etc/pixelnode/config.toml'...
-PASS: Configuration TOML syntax and structure are valid.
+PASS: Configuration TOML syntax, structure, and parameters are valid. (Warnings: 0)
+```
+
+### `pxtool config preset list`
+Lists all built-in LED tape hardware profiles with their voltage, length, pixel count, physical LED count, color order, and recommended ABL current cap.
+
+```bash
+pxtool config preset list
+```
+
+### `pxtool config preset show <ID>`
+Displays detailed electrical characteristics, calculation formulas, power injection guidance, and wiring precautions for a specific LED tape profile.
+
+```bash
+pxtool config preset show btf_fcob_576_24v_10m
+pxtool config preset show nobrand_60led_12v_5m
+```
+
+### `pxtool config preset apply <ID>`
+Generates a complete, production-ready, fully commented `config.toml` file tailored to the selected tape profile and output driver.
+
+```bash
+# Generate config for BTF FCOB 24V (10m, 160 px, RGB) via Raspberry Pi SPI
+pxtool config preset apply btf_fcob_576_24v_10m --output /etc/pixelnode/config.toml
+
+# Generate config for Generic 12V (5m, 100 px, RBG) via Arduino Uno USB-Serial
+pxtool config preset apply nobrand_60led_12v_5m --driver serial_mcu --device /dev/ttyUSB0 --output /etc/pixelnode/config.toml
+```
+
+### `pxtool config init`
+Launches the interactive setup wizard, prompting the technician to select from built-in profiles (or custom parameters), choose output driver hardware (Raspberry Pi SPI, Arduino Uno USB-Serial, or Virtual), and set DMX addressing.
+
+```bash
+# Interactive setup wizard
+pxtool config init
+
+# Scripted non-interactive initialization
+pxtool config init --preset btf_fcob_576_24v_10m --output /etc/pixelnode/config.toml --non-interactive
 ```
 
 ### `pxtool config set`
@@ -211,11 +248,11 @@ pxtool config set --universe 2 --address 1
 # Change personality to Pixel Direct RGB (Media server mode)
 pxtool config set --personality pixel_direct
 
-# Change color order to GRB and adjust pixel count
-pxtool config set --color-order grb --pixels 576
+# Change color order to RBG and adjust pixel count
+pxtool config set --color-order rbg --pixels 100
 
-# Set maximum PSU current limit to 20 Amperes (20000 mA)
-pxtool config set --max-current-ma 20000
+# Set maximum PSU current limit to 7 Amperes (7000 mA)
+pxtool config set --max-current-ma 7000
 ```
 
 ---

@@ -1,6 +1,10 @@
-# PixelNode Raspberry Pi 3B セットアップガイド（ライブ現場向け高安定化設定）
+# PixelNode Raspberry Pi 3B セットアップガイド（動作安定化設定）
 
-Raspberry Pi 3B で WS2811 / WS2812B を SPI0（GPIO10）から駆動し、ライブ現場で絶対に停止・チラつきを起こさないためのハードウェア・OS設定手順です。
+Raspberry Pi 3B で WS2811 / WS2812B を SPI0（GPIO10）から駆動する際の、クロック変動やバッファ詰まりによるタイミングの乱れ・チラつきを低減するためのハードウェアおよびOS設定手順です。
+
+> [!NOTE]
+> **OSタイマーとジッターについての留意点**:
+> Raspberry Pi や一般的な Linux PC では、OS のプロセススケジューリングや割り込み処理、CPU負荷変動の影響を受けるため、ハードウェアタイマー専用のリアルタイムコントローラ（専用マイコン等）と比較して信号ジッターをゼロにすることは構造上保証できません。本ガイドの設定は、クロックの固定やカーネルバッファ拡張により、それらの変動要因を可能な限り低減することを目的としています。
 
 ---
 
@@ -64,9 +68,19 @@ cargo build --release
 sudo cp target/release/pixelnoded /usr/local/bin/
 sudo cp target/release/pxtool /usr/local/bin/
 
-# 設定ファイル配置
+# 設定ファイル配置（以下のいずれかを選択）
+# 方式A: 対話型セットアップウィザードで初期設定
 sudo mkdir -p /etc/pixelnode
-sudo cp deploy/config.example.toml /etc/pixelnode/config.toml
+pxtool config init -o /etc/pixelnode/config.toml
+
+# 方式B: プリセットTOMLから直接コピー
+# 例: BTF 24V 10m FCOB (SPI) の場合
+sudo cp deploy/presets/btf_fcob_24v_10m_spi.toml /etc/pixelnode/config.toml
+# 例: ノーブランド 12V 5m (SPI) の場合
+# sudo cp deploy/presets/generic_12v_5m_spi.toml /etc/pixelnode/config.toml
+
+# 設定ファイルの構文検証
+pxtool config validate /etc/pixelnode/config.toml
 
 # systemd サービス登録
 sudo cp deploy/pixelnoded.service /etc/systemd/system/
@@ -78,18 +92,29 @@ sudo systemctl enable --now pixelnoded
 
 ## 4. 現場でのセルフテスト（リグチェック）
 
-照明卓やネットワークがまだ接続されていない状態でも、`pxtool` で単体テストを行えます：
+照明卓やネットワークがまだ接続されていない状態でも、`pxtool` で単体テストを行えます。
+プリセット指定（`--preset`）または個別パラメータ指定（`--pixels`, `--color-order` 等）のどちらでも実行可能です：
 
 ```bash
+# プリセットを使用したテスト（ピクセル数・色順が自動適用されます）
+# 例: BTF 24V 10m FCOB (160 px, RGB)
+sudo pxtool test --preset btf --mode rgbw --spi /dev/spidev0.0
+sudo pxtool test --preset btf --mode soak --spi /dev/spidev0.0
+
+# 例: ノーブランド 12V 5m (100 px, RBG)
+sudo pxtool test --preset generic --mode rgbw --spi /dev/spidev0.0
+sudo pxtool test --preset generic --mode soak --spi /dev/spidev0.0
+
+# 手動指定でのテスト
 # 1. 色順・断線チェック（赤→緑→青→白の順次点灯）
-sudo pxtool test --mode rgbw --pixels 300 --spi /dev/spidev0.0
+sudo pxtool test --mode rgbw --pixels 160 --color-order rgb --spi /dev/spidev0.0
 
 # 2. アドレス・ピクセル数・向きチェック（白い光が1px走る）
-sudo pxtool test --mode walker --pixels 300 --spi /dev/spidev0.0
+sudo pxtool test --mode walker --pixels 160 --spi /dev/spidev0.0
 
-# 3. 24V 電源容量・電圧降下チェック（全白フル点灯）
-sudo pxtool test --mode soak --pixels 300 --spi /dev/spidev0.0
+# 3. 電源容量・電圧降下チェック（全白フル点灯）
+sudo pxtool test --mode soak --pixels 160 --spi /dev/spidev0.0
 
-# 4. 信号線ノイズ耐性チェック（40Hz 高速ストロボ）
-sudo pxtool test --mode strobe --pixels 300 --spi /dev/spidev0.0
+# 4. 信号線ノイズ耐性チェック（高速ストロボ）
+sudo pxtool test --mode strobe --pixels 160 --spi /dev/spidev0.0
 ```

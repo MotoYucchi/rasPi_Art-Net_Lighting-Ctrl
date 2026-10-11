@@ -388,6 +388,7 @@ name = "fixture"
 version = "0.1.0"
 dependencies = [
  "dmx-universe",
+ "serde",
 ]
 
 [[package]]
@@ -1022,6 +1023,7 @@ dependencies = [
  "audio-proto",
  "clap",
  "engine",
+ "fixture",
  "output",
  "proto-artnet",
  "proto-sacn",

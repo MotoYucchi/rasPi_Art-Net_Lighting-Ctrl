@@ -70,9 +70,9 @@ The system is designed with a **dual-layer operational architecture** to ensure 
 
 ---
 
-## 3. Professional Fail-safe & Safety Architecture
+## 3. Fail-safe & Safety Architecture
 
-In live stage and architectural lighting, unexpected glitches, accidental cable disconnects, or host reboots must **never** cause erratic strobing or uncommanded blackouts. The Arduino Uno firmware incorporates multi-layered safety mechanisms:
+In live stage and architectural lighting, unexpected glitches, accidental cable disconnects, or host reboots must not cause erratic strobing or uncommanded blackouts. The Arduino Uno firmware incorporates multi-layered safety mechanisms:
 
 | Safety Mechanism | Implementation | Production Behavior |
 | :--- | :--- | :--- |
@@ -88,44 +88,76 @@ In live stage and architectural lighting, unexpected glitches, accidental cable 
 
 ## 4. Hardware Wiring & Electrical Specifications
 
-> [!WARNING]
-> Never power WS2811 / WS2812B strips directly from the Arduino Uno's 5V pin! Strips draw substantial current (up to 60 mA per pixel at full white). An external regulated 5V power supply is required.
+> [!CAUTION]
+> **CRITICAL VOLTAGE SEPARATION**:  
+> Never connect 24V or 12V power supply positive to the Arduino Uno's 5V, 3.3V, VIN, or GPIO pins! The Arduino Uno operates from host USB 5V power. Only the **DC Negative / GND** is shared between the LED power supply and the Arduino.
+
+### Wiring Diagram for 24V (BTF-LIGHTING FCOB 10m) / 12V (Generic Strip 5m):
 
 ```
-              +----------------------------+
-              | External 5V Power Supply   |
-              | +5V                     GND|
-              +--+-----------------------+-+
-                 |                       |
-                 |   +-----------------+ |
-                 +---+ 1000uF Cap      | |
-                 |   | (Electrolytic)  | |
-                 |   +-----------------+ |
-                 |                       |
-                 +-----------------------+----------+ (+5V Power)
-                 |                                  |
-                 |                                  v
-+----------------+--------+               +-------------------+
-| Arduino Uno (ATmega328P)|               | WS2811 / WS2812B  |
-|                         |   330Ω - 470Ω | LED Strip         |
-| Pin D6 (Data Out) ------+---[ Resistor ]+-> Data Input      |
-|                         |               |                   |
-| GND --------------------+---------------+-> GND (Common)    |
-| USB Port (To Linux/PC)  |               +-------------------+
-+-------------------------+
+         +-----------------------------------------------+
+         | External LED Power Supply (24V or 12V DC)     |
+         | +V (24V / 12V)                       GND (DC-)|
+         +---+--------------------------------------+-+--+
+             |                                      | |
+  Power Feed | (Dual-end power injection)           | | (Common GND)
+             |                                      | |
+  +----------+--------------------+                 | |
+  |                               |                 | |
+  v                               v                 | |
++----+----------------------------+----+            | |
+| +V | LED Strip (WS2811 24V / 12V)| +V |           | |
+| DI | Length: 10m (24V) / 5m (12V)| DI |           | |
+|GND |                             |GND |           | |
++--+-+----------------------------+--+-+            | |
+   ^                                 ^              | |
+   |                                 +--------------+ |
+   |                                 (End Injection)  |
+   |                                                  |
+   +--------------------------------------------------+
+   | (Start Injection GND)
+   |
+   | Data Line (5V Logic)
+   |       330Ω - 470Ω Resistor
+   +-------[   ///   ]-------+
+                             |
+                     Pin D6  |
+            +----------------+---------+
+            | Arduino Uno (ATmega328P) |
+            |                          |
+            | GND ---------------------+ (Common Ground Wire)
+            | USB Port                 |
+            +------------+-------------+
+                         | USB Cable
+                         v
+            +--------------------------+
+            | Host (Linux PC / RasPi)  |
+            +--------------------------+
 ```
 
-### Critical Wiring Rules:
-1. **Common Ground**: Connect the Arduino `GND` pin directly to the `GND` of the external 5V power supply. Without a common ground reference, the high-speed 800 kHz serial data signal will glitch.
-2. **Data Resistor**: Place a `330 Ω` to `470 Ω` resistor between Arduino Pin D6 and the LED strip's `DATA IN`. This dampens transmission line ringing and protects the first pixel's input gate.
-3. **Bulk Capacitor**: Connect a `1000 µF, 6.3V` or `16V` electrolytic capacitor across `+5V` and `GND` at the power supply terminals to absorb current surges when all LEDs turn on simultaneously.
-4. **Data Pin**: The default data pin is **D6** (`PORTD, Bit 6`). Can be changed in `ws2812_driver.h` if needed.
+### Critical Wiring Rules for Field Deployment:
+1. **Common Ground**: Connect the Arduino `GND` pin directly to the `GND` (negative terminal) of the external 24V or 12V power supply with a low-resistance lead. Without a solid ground reference, high-frequency 800 kHz bitbang data will suffer from frame corruption and flickering.
+2. **Data Resistor**: Place a `330 Ω` to `470 Ω` resistor in series between Arduino Pin D6 and the LED strip's `DATA IN`. This dampens transmission line reflections and protects the first WS2811 IC.
+3. **Dual-End Power Injection**:
+   * **BTF FCOB 24V (10m)**: Connect 24V and GND to both ends (0m and 10m).
+   * **Generic 12V (5m)**: Connect 12V and GND to both ends (0m and 5m).
+4. **Data Pin**: The default data output pin is **D6** (`PORTD, Bit 6`). Can be customized in `firmware/arduino_uno/ws2812_driver.h` if required.
 
 ---
 
 ## 5. Host Configuration (`config.toml`)
 
-To use Arduino Uno via USB serial in `pixelnoded`, configure the output device in `config.toml`:
+You can generate configuration files directly using pre-configured hardware profiles:
+
+```bash
+# Generate config for BTF-LIGHTING FCOB 24V (10m, 160 px, RGB) via Arduino USB-Serial:
+pxtool config preset apply btf_fcob_576_24v_10m --driver serial_mcu --device /dev/ttyUSB0 -o /etc/pixelnode/config.toml
+
+# Generate config for Generic 12V Strip (5m, 100 px, RBG) via Arduino USB-Serial:
+pxtool config preset apply nobrand_60led_12v_5m --driver serial_mcu --device /dev/ttyUSB0 -o /etc/pixelnode/config.toml
+```
+
+Example `config.toml` structure for Arduino Uno output:
 
 ```toml
 [node]
@@ -135,16 +167,16 @@ show_lock = false
 [[output]]
 id = "out-uno-01"
 driver = "serial_mcu"       # or "usb_serial"
-device = "/dev/ttyACM0"     # standard Arduino Uno CDC port (/dev/ttyUSB0 for CH340 clones)
-baud_rate = 115200          # 115200 standard (or 250000 for zero-error divisor)
-chip = "ws2812b"
-color_order = "grb"         # grb for WS2812B, brg for WS2811
-pixels = 60                 # recommended <= 170 pixels for Uno
-psu_max_current_ma = 10000  # 10A current limit (ABL)
+device = "/dev/ttyUSB0"     # /dev/ttyUSB0 (CH340) or /dev/ttyACM0 (official Uno)
+baud_rate = 115200          # 115200 standard baud
+chip = "ws2811"             # ws2811 | ws2812b
+color_order = "rgb"         # "rgb" for BTF FCOB, "rbg" for Generic 12V
+pixels = 160                # 160 px (BTF FCOB 10m) or 100 px (Generic 12V 5m)
+psu_max_current_ma = 7000   # Automatic Brightness Limiter (ABL) current cap
 
 [[fixture]]
 output = "out-uno-01"
-pixel_range = [0, 59]
+pixel_range = [0, 159]      # [0, pixels - 1]
 personality = "preset_7ch"
 universe = 1
 address = 1

@@ -64,7 +64,7 @@ The PixelNode ecosystem consists of three main components:
 |  | - Art-Net 4 / sACN  |   | - Live Telemetry    |   | - Dual-Res    |  |
 |  | - RenderEngine      |   | - SPI Rig Check     |   |   FFT Engine  |  |
 |  | - Web Management UI |   | - Dynamic Config    |   | - UDP Feature |  |
-|  | - REST API & RDM    |   | - Network Sniffer   |   |   Broadcaster |  |
+|  | - REST API & Web UI |   | - Network Sniffer   |   |   Broadcaster |  |
 |  +----------+----------+   +----------+----------+   +-------+-------+  |
 |             |                         |                      |          |
 +-------------|-------------------------|----------------------|----------+
@@ -77,8 +77,57 @@ The PixelNode ecosystem consists of three main components:
 ```
 
 * **`pixelnoded`**: Core service daemon that handles network DMX ingestion, fixture personality decoding, pattern synthesis, power limiting, and hardware output. Supports Raspberry Pi native SPI (`spi_ws281x`) as well as Arduino Uno (ATmega328P) USB-Serial MCU bridge (`serial_mcu` / `usb_serial`) with fail-safe watchdog protection. Also serves the local web dashboard.
-* **`pxtool`**: Field CLI utility for querying telemetry, triggering test patterns, sniffing network DMX packets, and modifying runtime settings.
+* **`pxtool`**: Field CLI utility for querying telemetry, triggering test patterns, sniffing network DMX packets, generating strip configs, and modifying runtime settings.
 * **`audio-analyzerd`**: Optional helper process for analyzing local audio input (via USB line-in) and broadcasting compact feature frames (`AudioFeaturePacket`) over UDP.
+
+---
+
+## Built-in LED Strip Profiles & Presets
+
+PixelNode includes pre-calculated hardware profiles for commonly deployed LED strips, capturing voltage, grouping, color permutations, power limits, and power injection rules:
+
+| Preset ID | Strip Model & Type | Voltage | Length | Controllable Pixels | Physical LEDs | Color Order | Recommended ABL Cap | Power Injection Rule |
+|:---|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---|
+| **`btf_fcob_576_24v_10m`** | **BTF-LIGHTING FCOB 576 LEDs/m**<br>(36 LEDs/WS2811 IC) | **24V** | 10m | **160 px** | 5,760 leds | **RGB** | 7,000 mA | Both ends (0m & 10m) required. Midpoint (5m) recommended for sustained full white |
+| **`nobrand_60led_12v_5m`** | **Generic / No-brand 60 LEDs/m**<br>(3 LEDs/WS2811 IC) | **12V** | 5m | **100 px** | 300 leds | **RBG** | 6,000 mA | Both ends (0m & 5m) required to avoid yellow/red color shift |
+| **`ws2812b_60led_5v_5m`** | **Generic WS2812B 60 LEDs/m**<br>(1 LED/IC discrete) | **5V** | 5m | **300 px** | 300 leds | **GRB** | 15,000 mA | Both ends plus every 2–2.5m intermediate power feeds mandatory |
+
+> [!NOTE]
+> **RBG Color Order on Generic 12V Strips**:  
+> Many generic 12V WS2811 SMD strips swap Blue and Green internal channels on the PCB, resulting in **`RBG`** order. PixelNode natively supports all six channel permutations (`rgb`, `rbg`, `grb`, `gbr`, `brg`, `bgr`), ensuring correct color fidelity at the node level without needing console profile alterations.
+
+### Preset Commands
+```bash
+# List all built-in profiles
+pxtool config preset list
+
+# Display detailed electrical specs & wiring notes
+pxtool config preset show btf_fcob_576_24v_10m
+
+# Generate ready-to-run configuration file from preset
+pxtool config preset apply btf_fcob_576_24v_10m --output /etc/pixelnode/config.toml
+pxtool config preset apply nobrand_60led_12v_5m --driver serial_mcu --device /dev/ttyUSB0 --output /etc/pixelnode/config.toml
+
+# Interactive setup wizard
+pxtool config init
+```
+
+---
+
+## Field Wiring, Power Injection & Electrical Considerations
+
+For reliable installation in stage and venue environments, adhere to these electrical guidelines:
+
+1. **Power Injection**:
+   * **24V FCOB (10m)**: Even though 24V reduces current compared to 5V/12V, a 10m run at full white draws ~150W (~6.25A). Running full current through delicate FPC traces causes trace heating and measurable voltage drop. **Inject 24V and GND at both ends (0m and 10m)**.
+   * **12V Strips (5m)**: At ~6.0A full load, a single-ended feed will drop below 10V at the far end, tinting whites yellow or red. **Inject 12V and GND at both ends (0m and 5m)**.
+2. **Common Ground Connection**:
+   * Connect the DC negative (GND) of the LED power supply and the controller (Raspberry Pi / Arduino) GND pin together with a heavy-gauge wire. A floating ground reference causes severe data flickering and packet drop.
+3. **Logic Level Shifting**:
+   * **Raspberry Pi (3.3V GPIO)**: WS2811 DI requires 5V logic ($V_{IH} \ge 3.5\text{V}$). Direct connection gives insufficient noise margin. Use a 74AHCT125 high-speed CMOS buffer followed by a 33–100Ω series resistor.
+   * **Arduino Uno (5V I/O)**: 5V logic matches the strip DI, but insert a **330–470Ω series damping resistor** right at Pin D6 to prevent transmission line ringing.
+4. **Overvoltage Protection**:
+   * **Never apply 24V or 12V to Raspberry Pi or Arduino GPIO/5V/3.3V rails**. Doing so will permanently destroy the microcontroller.
 
 ---
 

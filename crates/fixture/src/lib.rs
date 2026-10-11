@@ -6,6 +6,9 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+pub mod profiles;
+pub use profiles::{CustomTapeConfig, TapeProfile, BUILTIN_PROFILES};
+
 use dmx_universe::UniverseStore;
 
 /// Strobe mode interpreted from DMX channel

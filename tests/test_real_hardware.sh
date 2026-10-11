@@ -43,6 +43,7 @@ ${BOLD}OPTIONS:${RESET}
                              [default: full]
   -p, --pixels <COUNT>       Specific pixel count to test in quick/interactive mode [default: 60]
   -c, --color-order <ORDER>  Specific color order: grb | brg | rgb | bgr | rbg | gbr [default: grb]
+  --preset <NAME>            Apply preset strip profile: btf (160px, rgb) | generic (100px, rbg) | ws2812b (170px, grb)
   -b, --baud <RATE>          Specific baud rate: 115200 | 250000 [default: 115200]
   -h, --help                 Display this documentation and exit
 
@@ -53,11 +54,14 @@ ${BOLD}EXAMPLES:${RESET}
   # Fast smoke test on connected hardware:
   $0 --mode quick
 
+  # Test with BTF-LIGHTING FCOB 24V (160 px, RGB):
+  $0 --preset btf
+
+  # Test with Generic 12V (100 px, RBG):
+  $0 --preset generic
+
   # Field technician visual inspection with on-screen prompts for RGB validation:
   $0 --mode interactive --pixels 60 --color-order grb
-
-  # Test high-density 170-pixel strip (full DMX universe):
-  $0 --pixels 170 --color-order brg
 EOF
     exit 0
 }
@@ -79,6 +83,30 @@ while [[ $# -gt 0 ]]; do
         -c|--color-order)
             TARGET_COLOR_ORDER="$2"
             shift 2
+            ;;
+        --preset)
+            PRESET_ARG="$2"
+            shift 2
+            case "$PRESET_ARG" in
+                btf*|fcob*|1)
+                    TARGET_PIXELS=160
+                    TARGET_COLOR_ORDER="rgb"
+                    echo -e "${CYAN}Applying preset profile 'BTF-LIGHTING FCOB 24V 10m': 160 px, color_order rgb${RESET}"
+                    ;;
+                nobrand*|generic*|2)
+                    TARGET_PIXELS=100
+                    TARGET_COLOR_ORDER="rbg"
+                    echo -e "${CYAN}Applying preset profile 'Generic 12V 5m': 100 px, color_order rbg${RESET}"
+                    ;;
+                ws2812b*|5v*|3)
+                    TARGET_PIXELS=170
+                    TARGET_COLOR_ORDER="grb"
+                    echo -e "${CYAN}Applying preset profile 'WS2812B 5V': 170 px (MCU limit), color_order grb${RESET}"
+                    ;;
+                *)
+                    echo -e "${YELLOW}Unknown preset profile '$PRESET_ARG', continuing with defaults${RESET}"
+                    ;;
+            esac
             ;;
         -b|--baud)
             TARGET_BAUD="$2"
@@ -207,7 +235,7 @@ fi
 echo -e "\n${BOLD}${BLUE}>>> [PHASE 2] Pixel Count Scaling Sweep${RESET}"
 
 if [ "$MODE" == "full" ]; then
-    PIXEL_COUNTS=(10 60 120 170)
+    PIXEL_COUNTS=(10 60 100 160 170)
 else
     PIXEL_COUNTS=("$TARGET_PIXELS")
 fi
@@ -282,7 +310,7 @@ done
 echo -e "\n${BOLD}${BLUE}>>> [PHASE 3] Color Order Permutation Matrix${RESET}"
 
 if [ "$MODE" == "full" ]; then
-    COLOR_ORDERS=("grb" "brg" "rgb" "bgr")
+    COLOR_ORDERS=("grb" "brg" "rgb" "rbg" "bgr")
 else
     COLOR_ORDERS=("$TARGET_COLOR_ORDER")
 fi
@@ -633,8 +661,8 @@ echo -e " Target Device   : ${DEVICE} (${TARGET_BAUD} baud)"
 echo -e "------------------------------------------------------------------------"
 
 if [ ${#FAILED_TESTS[@]} -eq 0 ]; then
-    echo -e "${BOLD}${GREEN}>>> ALL REAL HARDWARE TESTS PASSED WITH 100% SUCCESS! <<<${RESET}"
-    echo -e "The connected Arduino Uno is verified for production stage deployment."
+    echo -e "${BOLD}${GREEN}Hardware verification completed successfully.${RESET}"
+    echo -e "All test items passed on connected device ${DEVICE}."
     echo -e "${BOLD}${CYAN}========================================================================${RESET}"
     exit 0
 else

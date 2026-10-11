@@ -2,9 +2,11 @@
 
 use clap::{Args, Parser, Subcommand};
 use engine::{ColorOrder, RenderEngine, RgbColor, TestPatternMode};
+use fixture::TapeProfile;
 use output::PixelSink;
 use serde::Deserialize;
 use std::fs;
+use std::io::IsTerminal;
 use std::net::UdpSocket;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -117,9 +119,13 @@ struct TestArgs {
     #[arg(short, long, default_value_t = 300)]
     pixels: usize,
 
-    /// Color order for local test: brg | rgb | grb
+    /// Color order for local test: brg | rgb | rbg | grb | gbr | bgr
     #[arg(long, default_value = "brg")]
     color_order: String,
+
+    /// LED tape preset profile to auto-configure pixels & color order (e.g. 'btf_fcob_576_24v_10m', 'nobrand_60led_12v_5m')
+    #[arg(long)]
+    preset: Option<String>,
 
     /// Custom RGB color for 'color' mode (e.g. '255,0,128')
     #[arg(long)]
@@ -167,6 +173,12 @@ enum ConfigSubcommands {
         path: String,
     },
 
+    /// Setup wizard to generate node configuration (interactive or scripted)
+    Init(ConfigInitArgs),
+
+    /// Manage and inspect built-in LED tape/strip preset hardware profiles
+    Preset(PresetCommand),
+
     /// Modify running node settings via REST API
     Set {
         /// Remote node URL
@@ -193,7 +205,7 @@ enum ConfigSubcommands {
         #[arg(long)]
         pixels: Option<usize>,
 
-        /// Color order: brg | rgb | grb
+        /// Color order: brg | rgb | rbg | grb | gbr | bgr
         #[arg(long)]
         color_order: Option<String>,
 
@@ -204,6 +216,97 @@ enum ConfigSubcommands {
         /// Failsafe policy: hold | hold_then_fade | blackout
         #[arg(long)]
         failsafe: Option<String>,
+    },
+}
+
+#[derive(Args)]
+struct ConfigInitArgs {
+    /// LED tape profile ID (e.g. 'btf_fcob_576_24v_10m', 'nobrand_60led_12v_5m', or 'custom')
+    #[arg(short, long)]
+    preset: Option<String>,
+
+    /// Output destination file path
+    #[arg(short, long, default_value = "config.toml")]
+    output: String,
+
+    /// Hardware output driver: spi_ws281x | serial_mcu | virtual
+    #[arg(long, default_value = "spi_ws281x")]
+    driver: String,
+
+    /// Hardware device path (/dev/spidev0.0 or /dev/ttyUSB0)
+    #[arg(long)]
+    device: Option<String>,
+
+    /// Serial baud rate (when using serial_mcu)
+    #[arg(long, default_value_t = 115200)]
+    baud_rate: u32,
+
+    /// DMX personality: preset_7ch | standard | pixel_direct
+    #[arg(long, default_value = "preset_7ch")]
+    personality: String,
+
+    /// Start universe
+    #[arg(long, default_value_t = 1)]
+    universe: u16,
+
+    /// Start address
+    #[arg(long, default_value_t = 1)]
+    address: u16,
+
+    /// Non-interactive mode (use defaults or flags without prompting)
+    #[arg(long)]
+    non_interactive: bool,
+}
+
+#[derive(Args)]
+struct PresetCommand {
+    #[command(subcommand)]
+    action: PresetSubcommands,
+}
+
+#[derive(Subcommand)]
+enum PresetSubcommands {
+    /// List all available built-in LED tape hardware profiles
+    List,
+
+    /// Show detailed electrical, wiring, and pixel specs for a profile
+    Show {
+        /// Profile ID or alias (e.g. btf_fcob_576_24v_10m, generic-12v-5m, 1, 2)
+        id: String,
+    },
+
+    /// Apply a tape profile and generate a configuration file
+    Apply {
+        /// Profile ID or alias
+        id: String,
+
+        /// Output TOML file path
+        #[arg(short, long, default_value = "config.toml")]
+        output: String,
+
+        /// Driver: spi_ws281x | serial_mcu | virtual
+        #[arg(long, default_value = "spi_ws281x")]
+        driver: String,
+
+        /// Device path (default /dev/spidev0.0 for SPI, /dev/ttyUSB0 for serial_mcu)
+        #[arg(long)]
+        device: Option<String>,
+
+        /// Baud rate (default 115200)
+        #[arg(long, default_value_t = 115200)]
+        baud_rate: u32,
+
+        /// DMX personality (default preset_7ch)
+        #[arg(long, default_value = "preset_7ch")]
+        personality: String,
+
+        /// Start universe (default 1)
+        #[arg(long, default_value_t = 1)]
+        universe: u16,
+
+        /// Start address (default 1)
+        #[arg(long, default_value_t = 1)]
+        address: u16,
     },
 }
 
@@ -299,8 +402,11 @@ struct AudioJson {
 fn parse_color_order(s: &str) -> ColorOrder {
     match s.to_lowercase().as_str() {
         "rgb" => ColorOrder::Rgb,
+        "rbg" => ColorOrder::Rbg,
         "grb" => ColorOrder::Grb,
+        "gbr" => ColorOrder::Gbr,
         "brg" => ColorOrder::Brg,
+        "bgr" => ColorOrder::Bgr,
         _ => ColorOrder::Brg,
     }
 }
@@ -584,6 +690,22 @@ fn main() {
             }
 
             // Local SPI / virtual test execution
+            let (pixels, color_order_str) = if let Some(ref pid) = args.preset {
+                if let Some(prof) = TapeProfile::find(pid) {
+                    println!("Applying preset profile: {} ({} px, {}V, Color: {})",
+                        prof.name, prof.total_pixels, prof.voltage, prof.color_order.to_uppercase()
+                    );
+                    let px = if args.pixels == 300 { prof.total_pixels } else { args.pixels };
+                    let co = if args.color_order == "brg" { prof.color_order.to_string() } else { args.color_order.clone() };
+                    (px, co)
+                } else {
+                    eprintln!("Warning: unknown preset profile '{}', using command line arguments", pid);
+                    (args.pixels, args.color_order.clone())
+                }
+            } else {
+                (args.pixels, args.color_order.clone())
+            };
+
             let pattern_mode = match args.mode.to_lowercase().as_str() {
                 "rgbw" => TestPatternMode::RgbwCycle,
                 "walker" => TestPatternMode::AddressWalker,
@@ -592,11 +714,11 @@ fn main() {
                 _ => TestPatternMode::RgbwCycle,
             };
 
-            let c_order = parse_color_order(&args.color_order);
+            let c_order = parse_color_order(&color_order_str);
             let engine = RenderEngine::new(c_order, 20_000);
 
             println!("==================================================");
-            println!(" Rig Check: {:?} on {} pixels (ColorOrder: {:?})", pattern_mode, args.pixels, c_order);
+            println!(" Rig Check: {:?} on {} pixels (ColorOrder: {:?})", pattern_mode, pixels, c_order);
             if let Some(ref path) = args.spi {
                 println!(" Output Target: SPI device '{}'", path);
             } else {
@@ -607,7 +729,7 @@ fn main() {
 
             #[cfg(target_os = "linux")]
             let mut spi_sink = if let Some(ref path) = args.spi {
-                match output::spi_ws281x::SpiWs281xSink::open(path, args.pixels) {
+                match output::spi_ws281x::SpiWs281xSink::open(path, pixels) {
                     Ok(sink) => Some(sink),
                     Err(e) => {
                         eprintln!("Failed to open SPI {}: {}", path, e);
@@ -618,8 +740,8 @@ fn main() {
                 None
             };
 
-            let mut out_pixels = vec![RgbColor::default(); args.pixels];
-            let mut byte_buffer = vec![0u8; args.pixels * 3];
+            let mut out_pixels = vec![RgbColor::default(); pixels];
+            let mut byte_buffer = vec![0u8; pixels * 3];
 
             let start = Instant::now();
             let mut frame_count: u64 = 0;
@@ -648,12 +770,12 @@ fn main() {
 
                 if args.spi.is_none() && frame_count % 50 == 0 {
                     let first = out_pixels[0];
-                    let mid = out_pixels[args.pixels / 2];
+                    let mid = out_pixels[pixels / 2];
                     println!(
                         "[{:>5.1}s] Px 0: RGB({:3},{:3},{:3}) | Px {}: RGB({:3},{:3},{:3})",
                         elapsed.as_secs_f32(),
                         first.r, first.g, first.b,
-                        args.pixels / 2,
+                        pixels / 2,
                         mid.r, mid.g, mid.b
                     );
                 }
@@ -706,25 +828,235 @@ fn main() {
                     }
                 };
 
-                // Validate required sections
                 let mut errors = 0;
+                let mut warnings = 0;
                 if val.get("node").is_none() {
-                    eprintln!("- Missing [node] section");
+                    eprintln!("- FAIL: Missing [node] section");
                     errors += 1;
                 }
-                if val.get("output").is_none() {
-                    eprintln!("- Missing [[output]] section");
+                if let Some(outputs) = val.get("output").and_then(|o| o.as_array()) {
+                    if outputs.is_empty() {
+                        eprintln!("- FAIL: [[output]] array is empty");
+                        errors += 1;
+                    } else {
+                        for (i, out) in outputs.iter().enumerate() {
+                            let driver = out.get("driver").and_then(|d| d.as_str()).unwrap_or("");
+                            if !["spi_ws281x", "serial_mcu", "usb_serial", "virtual"].contains(&driver) {
+                                eprintln!("- WARNING: Output [{}] driver '{}' is unknown or non-standard", i, driver);
+                                warnings += 1;
+                            }
+                            let co = out.get("color_order").and_then(|c| c.as_str()).unwrap_or("");
+                            if !["rgb", "rbg", "grb", "gbr", "brg", "bgr"].contains(&co.to_lowercase().as_str()) {
+                                eprintln!("- FAIL: Output [{}] invalid color_order '{}' (must be rgb, rbg, grb, gbr, brg, or bgr)", i, co);
+                                errors += 1;
+                            }
+                            let px = out.get("pixels").and_then(|p| p.as_integer()).unwrap_or(0);
+                            if px <= 0 {
+                                eprintln!("- FAIL: Output [{}] pixel count must be > 0 (found {})", i, px);
+                                errors += 1;
+                            }
+                        }
+                    }
+                } else {
+                    eprintln!("- FAIL: Missing [[output]] section");
                     errors += 1;
                 }
-                if val.get("fixture").is_none() {
-                    eprintln!("- Missing [[fixture]] section");
+
+                if let Some(fixtures) = val.get("fixture").and_then(|f| f.as_array()) {
+                    if fixtures.is_empty() {
+                        eprintln!("- FAIL: [[fixture]] array is empty");
+                        errors += 1;
+                    } else {
+                        for (i, fix) in fixtures.iter().enumerate() {
+                            let personality = fix.get("personality").and_then(|p| p.as_str()).unwrap_or("");
+                            if !["preset_7ch", "standard", "standard_12ch", "pixel_direct"].contains(&personality) {
+                                eprintln!("- FAIL: Fixture [{}] invalid personality '{}'", i, personality);
+                                errors += 1;
+                            }
+                            let univ = fix.get("universe").and_then(|u| u.as_integer()).unwrap_or(0);
+                            if !(1..=63999).contains(&univ) {
+                                eprintln!("- FAIL: Fixture [{}] universe {} out of valid range (1..63999)", i, univ);
+                                errors += 1;
+                            }
+                            let addr = fix.get("address").and_then(|a| a.as_integer()).unwrap_or(0);
+                            if !(1..=512).contains(&addr) {
+                                eprintln!("- FAIL: Fixture [{}] start address {} out of valid range (1..512)", i, addr);
+                                errors += 1;
+                            }
+                        }
+                    }
+                } else {
+                    eprintln!("- FAIL: Missing [[fixture]] section");
                     errors += 1;
                 }
 
                 if errors == 0 {
-                    println!("PASS: Configuration TOML syntax and structure are valid.");
+                    println!("PASS: Configuration TOML syntax, structure, and parameters are valid. (Warnings: {})", warnings);
                 } else {
                     eprintln!("FAIL: {} error(s) found in configuration.", errors);
+                }
+            }
+
+            ConfigSubcommands::Preset(preset_cmd) => match preset_cmd.action {
+                PresetSubcommands::List => {
+                    println!("==========================================================================================");
+                    println!(" BUILT-IN LED TAPE / STRIP HARDWARE PROFILES");
+                    println!("==========================================================================================");
+                    println!("{:<24} {:<8} {:<8} {:<10} {:<12} {:<10} {:<10}", "ID", "VOLT", "LENGTH", "PIXELS", "PHYSICAL", "COLOR", "ABL CAP");
+                    println!("{:-<24} {:-<8} {:-<8} {:-<10} {:-<12} {:-<10} {:-<10}", "", "", "", "", "", "", "");
+                    for p in TapeProfile::catalog() {
+                        println!(
+                            "{:<24} {:<8} {:<8} {:<10} {:<12} {:<10} {:<10}",
+                            p.id,
+                            format!("{}V", p.voltage),
+                            format!("{:.1}m", p.total_length_m),
+                            format!("{} px", p.total_pixels),
+                            format!("{} leds", p.total_physical_leds),
+                            p.color_order.to_uppercase(),
+                            format!("{} mA", p.recommended_psu_ma)
+                        );
+                    }
+                    println!("------------------------------------------------------------------------------------------");
+                    println!("Usage: pxtool config preset show <ID>    (View electrical specs & wiring notes)");
+                    println!("       pxtool config preset apply <ID>   (Generate config.toml for this strip)");
+                    println!("==========================================================================================");
+                }
+                PresetSubcommands::Show { id } => {
+                    if let Some(p) = TapeProfile::find(&id) {
+                        println!("========================================================================");
+                        println!(" LED STRIP PROFILE SPECIFICATION: {}", p.name);
+                        println!("========================================================================");
+                        println!(" Profile ID         : {}", p.id);
+                        println!(" Model / Name       : {}", p.name);
+                        println!(" Description        : {}", p.description);
+                        println!(" Operating Voltage  : {}V DC", p.voltage);
+                        println!(" Chip / Protocol    : {}", p.chip.to_uppercase());
+                        println!(" Color Channel Order: {}", p.color_order.to_uppercase());
+                        println!(" Physical Density   : {} LEDs/m ({} physical LEDs total)", p.leds_per_meter, p.total_physical_leds);
+                        println!(" Control Density    : {} LEDs/IC -> {} pixels/m", p.leds_per_ic, p.pixels_per_meter);
+                        println!(" Controllable Pixels: {} pixels (over {:.1}m length)", p.total_pixels, p.total_length_m);
+                        println!(" Recommended ABL Cap: {} mA ({:.2} A)", p.recommended_psu_ma, p.recommended_psu_ma as f32 / 1000.0);
+                        println!("------------------------------------------------------------------------");
+                        println!("[POWER INJECTION GUIDANCE]");
+                        println!(" {}", p.power_injection_notes);
+                        println!("\n[WIRING & SIGNAL GUIDANCE]");
+                        println!(" {}", p.wiring_notes);
+                        println!("========================================================================");
+                    } else {
+                        eprintln!("Unknown preset profile ID or alias: '{}'", id);
+                        eprintln!("Run 'pxtool config preset list' to view available profiles.");
+                    }
+                }
+                PresetSubcommands::Apply {
+                    id,
+                    output,
+                    driver,
+                    device,
+                    baud_rate,
+                    personality,
+                    universe,
+                    address,
+                } => {
+                    if let Some(p) = TapeProfile::find(&id) {
+                        let dev_path = device.unwrap_or_else(|| {
+                            if driver == "serial_mcu" {
+                                "/dev/ttyUSB0".to_string()
+                            } else {
+                                "/dev/spidev0.0".to_string()
+                            }
+                        });
+                        let toml_content = p.generate_toml(&driver, &dev_path, baud_rate, &personality, universe, address);
+                        match fs::write(&output, toml_content) {
+                            Ok(_) => {
+                                println!("Configuration written successfully to '{}'", output);
+                                println!("Profile: {} ({} px, {}V, Color: {})", p.name, p.total_pixels, p.voltage, p.color_order);
+                            }
+                            Err(e) => eprintln!("Failed to write configuration file '{}': {}", output, e),
+                        }
+                    } else {
+                        eprintln!("Unknown preset profile ID or alias: '{}'", id);
+                        eprintln!("Run 'pxtool config preset list' to view available profiles.");
+                    }
+                }
+            }
+
+            ConfigSubcommands::Init(args) => {
+                let is_tty = std::io::stdin().is_terminal();
+                let interactive = is_tty && !args.non_interactive && args.preset.is_none();
+
+                let (chosen_profile, chosen_driver, chosen_device) = if interactive {
+                    println!("========================================================================");
+                    println!(" PixelNode Hardware Setup & Configuration Wizard");
+                    println!("========================================================================");
+                    println!("Select LED Tape Profile:");
+                    let catalog = TapeProfile::catalog();
+                    for (i, p) in catalog.iter().enumerate() {
+                        println!("  [{}] {} ({} px, {}V, {})", i + 1, p.name, p.total_pixels, p.voltage, p.color_order.to_uppercase());
+                    }
+                    println!("  [{}] Other / Custom (Default to BTF FCOB 24V)", catalog.len() + 1);
+
+                    use std::io::Write;
+                    print!("\nEnter selection [1-{}]: ", catalog.len() + 1);
+                    let _ = std::io::stdout().flush();
+                    let mut input = String::new();
+                    let _ = std::io::stdin().read_line(&mut input);
+                    let choice = input.trim();
+
+                    let prof = match choice {
+                        "1" => Some(catalog[0].clone()),
+                        "2" if catalog.len() >= 2 => Some(catalog[1].clone()),
+                        "3" if catalog.len() >= 3 => Some(catalog[2].clone()),
+                        _ => Some(catalog[0].clone()),
+                    };
+
+                    println!("\nSelect Output Hardware Target:");
+                    println!("  [1] Raspberry Pi Native SPI (/dev/spidev0.0)");
+                    println!("  [2] USB-Serial MCU / Arduino Uno (/dev/ttyUSB0)");
+                    println!("  [3] Virtual / Headless loopback");
+                    print!("Enter selection [1-3, default 1]: ");
+                    let _ = std::io::stdout().flush();
+                    input.clear();
+                    let _ = std::io::stdin().read_line(&mut input);
+                    let (drv, dev) = match input.trim() {
+                        "2" => ("serial_mcu".to_string(), "/dev/ttyUSB0".to_string()),
+                        "3" => ("virtual".to_string(), "/dev/null".to_string()),
+                        _ => ("spi_ws281x".to_string(), "/dev/spidev0.0".to_string()),
+                    };
+
+                    (prof, drv, dev)
+                } else {
+                    let prof = args.preset.as_deref().and_then(TapeProfile::find).cloned().or_else(|| {
+                        Some(TapeProfile::catalog()[0].clone())
+                    });
+                    let dev = args.device.unwrap_or_else(|| {
+                        if args.driver == "serial_mcu" {
+                            "/dev/ttyUSB0".to_string()
+                        } else {
+                            "/dev/spidev0.0".to_string()
+                        }
+                    });
+                    (prof, args.driver, dev)
+                };
+
+                let p = chosen_profile.unwrap_or_else(|| TapeProfile::catalog()[0].clone());
+                let toml_str = p.generate_toml(
+                    &chosen_driver,
+                    &chosen_device,
+                    args.baud_rate,
+                    &args.personality,
+                    args.universe,
+                    args.address,
+                );
+
+                match fs::write(&args.output, &toml_str) {
+                    Ok(_) => {
+                        println!("\nConfiguration successfully generated and written to '{}'", args.output);
+                        println!("Profile: {} ({} px, {}V, Color: {})", p.name, p.total_pixels, p.voltage, p.color_order);
+                        println!("Output Driver: {} on {}", chosen_driver, chosen_device);
+                        println!("To run with this configuration:");
+                        println!("  pixelnoded {}", args.output);
+                    }
+                    Err(e) => eprintln!("Failed to write configuration file '{}': {}", args.output, e),
                 }
             }
 

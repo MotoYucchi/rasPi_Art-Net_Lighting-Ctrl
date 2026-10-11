@@ -1,0 +1,61 @@
+# PixelNode Configuration
+# Preset: Generic / No-brand 60 LEDs/m 12V (5m) via Raspberry Pi SPI
+# Total Pixels: 100 (3 LEDs/IC, 20 px/m * 5m = 100 ICs, 300 physical LEDs)
+# Color Order: rbg (Red, Blue, Green swapped batch) | Voltage: 12V
+
+[node]
+name = "Stage-Generic-12V-SPI"
+show_lock = false
+
+[network]
+artnet = true
+sacn = true
+bind_ip = "0.0.0.0"
+
+[web]
+enabled = true
+port = 8080
+bind_ip = "0.0.0.0"
+
+[audio]
+enabled = true
+listen_udp_port = 8765
+timeout_ms = 500
+
+[failsafe]
+on_data_loss = "hold"
+hold_timeout_sec = 10
+fade_duration_sec = 3
+
+[[output]]
+id = "out1"
+driver = "spi_ws281x"
+device = "/dev/spidev0.0"
+chip = "ws2811"
+color_order = "rbg"
+pixels = 100
+psu_max_current_ma = 6000
+
+[[fixture]]
+output = "out1"
+pixel_range = [0, 99]
+personality = "preset_7ch"
+white_mode = "rgb_blend"
+universe_span = "per_170px"
+universe = 1
+address = 1
+
+# ==============================================================================
+# FIELD INSTALLATION & WIRING NOTES (Generic 60 LED/m 12V 5m)
+# ==============================================================================
+# Power:
+#   - Supply: 12V DC regulated power supply (>= 8A / 100W recommended).
+#   - Injection: Inject 12V and DC GND at BOTH ends (0m and 5m). 12V drops quickly
+#     over 5m without dual-end injection, causing pink/yellow color cast at the end.
+#
+# Signal & Ground:
+#   - Common Ground: Connect 12V PSU DC negative to Raspberry Pi GND.
+#   - Level Shift: Pi GPIO10 (3.3V) -> 74AHCT125 -> Strip DI (5V logic).
+#   - Note: Color order is specifically "rbg".
+#   - CAUTION: NEVER connect 12V DC to Raspberry Pi GPIO or 5V rails!
+# ==============================================================================

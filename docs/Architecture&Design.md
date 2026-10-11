@@ -1,17 +1,17 @@
 # PixelNode アーキテクチャ & 設計仕様書（Architecture & Design Specification）
 
-**PixelNode**: Art-Net 4 (RDM含む) / sACN (E1.31) で DMX を受信し、Pixel LED (WS2811 / WS2812B 等) を超高信頼・超低遅延で自律駆動するプロフェッショナル照明コントローラーシステム。  
-対象: Raspberry Pi 3B (aarch64) を主ターゲット、x86_64 Linux を副ターゲットとする。
+**PixelNode**: Art-Net 4 (ArtDmx, ArtPoll/Reply) / sACN (E1.31) で DMX を受信し、Pixel LED (WS2811 / WS2812B 等) を自律駆動する Linux / マイコン向け照明コントローラーシステム。  
+対象: Raspberry Pi 3B (aarch64) を主ターゲット、x86_64 Linux を副ターゲットとし、USBシリアル接続の Arduino Uno (ATmega328P) によるマイコン出力オフロードにも対応する。
 
 - **システム総称 / 製品名**: **PixelNode**
-- **メインデーモン**: `pixelnoded` (Art-Net/sACN 受信・マージ・レンダリング・SPI出力・Web UI)
-- **現場診断・設定CLI**: `pxtool` (リグチェック、監視、動的設定、ステータス取得)
+- **メインデーモン**: `pixelnoded` (Art-Net/sACN 受信・マージ・レンダリング・SPI/シリアル出力・Web UI)
+- **現場診断・設定CLI**: `pxtool` (リグチェック、監視、プリセット設定生成、ステータス取得)
 - **音声解析デーモン**: `audio-analyzerd` (Pi ローカル USB 音声解析)
 - **ホストPC側音声送信機**: `audio-host-sender` (Host PC 音声キャプチャ・ブロードキャスト)
 
-> [!IMPORTANT]
-> 設計方針の最上位は **「ショー中に絶対に止まらない・止まっても見えない」**。
-> 機能・性能・作りやすさは、すべてこの方針に従属させる。
+> [!NOTE]
+> 設計方針の基本は **「現場のショー中に不意に停止せず、万一の信号途絶や障害時にも破綻を最小限に抑えること」** です。
+> Linux カーネルのソフトウェアタイマーやネットワークの不確定要素を考慮し、フェイルセーフと現場での点検性を最優先に設計しています。
 
 ---
 
@@ -19,13 +19,13 @@
 
 | # | 原則 | 具体策 |
 |---|------|--------|
-| P1 | **データプレーンと制御プレーンの分離** | DMX受信→レンダリング→出力の経路(データプレーン)は Web UI・RDM・音声解析が死んでも止まらない |
-| P2 | **ホットパスで失敗しない** | 起動後は動的メモリ確保なし・ブロッキングI/Oなし・`unwrap`/`panic`/インデックス直アクセス禁止 (clippy で強制) |
-| P3 | **壊れたら即・静かに復帰** | panic=abort → systemd が <1秒で再起動。WS281x は最後のデータを保持するので見た目上は止まらない。直前フレームは `/dev/shm` に保持し復帰時に再送 |
-| P4 | **入力を信用しない** | 全パケットパーサは境界チェック付き自前実装、fuzz テスト必須 |
-| P5 | **異常時の挙動を明示的に定義** | 信号断・ソース競合・電源不足など全ケースに「どう光るか」を設定で決める (§8) |
-| P6 | **ストレージに書かない** | ルートFSは読み取り専用、ログはRAM、設定はアトミック書き込み + Last-Known-Good |
-| P7 | **ショー中は変更させない** | 「Show Lock」モードで RDM SET / Web からの設定変更をロック |
+| P1 | **データプレーンと制御プレーンの分離** | DMX受信→レンダリング→出力の経路(データプレーン)は Web UI・REST API・音声解析に障害が生じても止まらない |
+| P2 | **ホットパスでのゼロアロケーション指向** | 起動後は描画ループ内での動的メモリ確保を排除し、`unwrap`/`panic` を禁止して遅延スパイクと異常終了を抑制 |
+| P3 | **静かな復帰とフェイルセーフ** | 信号途絶時は設定された保持（Hold）やフェード（Fadeout）へ移行。プロセス異常時は systemd の自動再起動と直前状態復帰を図る |
+| P4 | **境界保護とパケット検証** | 全ネットワークパーサおよびシリアルプロトコルは境界チェック付き自前実装、CRC検証を必須化 |
+| P5 | **異常時の挙動を明示的に定義** | 信号断・ソース競合・電源不足など各ケースにおいて「どのように光るか」を設定で定義 (§8) |
+| P6 | **ストレージ負荷の低減** | ルートFSの読み取り専用化を推奨し、揮発ログと設定のアトミック書き込みを採用 |
+| P7 | **ショー中の誤操作保護** | 「Show Lock」モードにより Web UI / REST API からの不用意な設定変更をロック |
 
 ---
 
@@ -171,43 +171,38 @@ flowchart TB
 
 ```
 rasPi_Art-Net_Lighting-Ctrl/
-├─ Cargo.toml                 # workspace
+├─ Cargo.toml                 # workspace 設定
 ├─ crates/
-│  ├─ proto-artnet/           # Art-Net 4 パーサ/シリアライザ (no_std, ゼロアロケーション)
-│  ├─ proto-sacn/             # E1.31 (Data / Sync / Universe Discovery)
-│  ├─ proto-rdm/              # E1.20 RDM PDU、レスポンダロジック
-│  ├─ dmx-universe/           # ユニバース保持・ソース管理・マージ・タイムアウト
-│  ├─ fixture/                # パーソナリティ定義 (§6) とチャンネル解釈
-│  ├─ engine/                 # パターン・ストロボ・音声変調・電力制限・ガンマ
-│  ├─ output/                 # trait PixelSink + spi_ws281x / rp2040_usb / dmx_uart / sim
-│  ├─ audio-proto/            # 音声特徴量メッセージ定義
-│  └─ control/                # Web/REST (axum), 設定, Prometheus メトリクス
+│  ├─ proto-artnet/           # Art-Net 4 (ArtDmx, ArtPoll/PollReply) ゼロアロケーションパーサ
+│  ├─ proto-sacn/             # sACN E1.31 (Data Packet, Multicast/Unicast)
+│  ├─ dmx-universe/           # ユニバース保持・ソース追跡・マージ・フェイルセーフ (Hold/Fade/Blackout)
+│  ├─ fixture/                # パーソナリティ定義 (Preset 7ch / Standard 12ch / Pixel Direct) & テーププロファイル
+│  ├─ engine/                 # 描画エンジン: 24種点灯パターン, 24種音声同期, ABL電力制限, ガンマ2.2
+│  ├─ output/                 # PixelSink trait (spi_ws281x, serial_mcu / Arduino Uno, virtual)
+│  └─ audio-proto/            # 音声特徴量 UDP メッセージ定義 (AudioFeaturePacket)
 ├─ bins/
-│  ├─ pixelnoded/             # メインデーモン
-│  ├─ audio-analyzerd/        # 音声解析デーモン (別プロセス)
-│  └─ pxtool/                 # CLI: テスト送信機、テストパターン、診断
-├─ firmware/rp2040-output/    # embassy-rp (別ワークスペース, Phase 5)
-├─ fuzz/                      # cargo-fuzz ターゲット
-├─ deploy/                    # systemd unit, config.txt 断片, cargo-deb 設定
-└─ docs/
+│  ├─ pixelnoded/             # メインデーモン (Art-Net/sACN受信, Web UI, REST API, レンダリング)
+│  ├─ pxtool/                 # 現場診断・リグ点検・パケット監視・プロファイル管理・設定ウィザードCLI
+│  └─ audio-analyzerd/        # 音声解析デーモン (ALSAデュアル解像度FFT)
+├─ firmware/
+│  └─ arduino_uno/            # Arduino Uno (ATmega328P) ファームウェア (WDT, フェイルセーフ, 24+24パターン)
+├─ deploy/                    # systemd サービス定義, config.example.toml, セットアップガイド
+│  └─ presets/                # プリセット設定テンプレート (BTF FCOB 24V 10m / Generic 12V 5m)
+├─ tests/                     # 統合テストスクリプト & 実機ハードウェア検証 (test_real_hardware.sh)
+└─ docs/                      # 各種仕様書, ハードウェア導入ガイド, 現場点検マニュアル
 ```
 
 ### 4.1 主要な技術選定
 
 | 用途 | 採用 | 理由 |
 |------|------|------|
-| Art-Net / sACN / RDM | **自前実装** | プロトコル自体は単純。ゼロアロケーション・fuzz 済みであることを自分で保証したい。既存 crate はメンテ状況・アロケーション方針が不確実 |
-| ソケット | `socket2` | `SO_RCVBUF` 拡大、マルチキャスト参加、`SO_REUSEADDR` |
-| SPI | `spidev` | カーネル標準ドライバ経由（root 不要、`spi` グループで可） |
-| スレッド優先度 | `thread-priority` / `libc` | SCHED_FIFO, CPU affinity |
-| スレッド間共有 | `triple_buffer`, `arc-swap` | ロックフリー |
-| systemd 連携 | `sd-notify` | READY / WATCHDOG |
-| 制御プレーン | `tokio` + `axum` | データプレーンとは別ランタイム |
-| 設定 | `serde` + `toml` | 人が読める、差分管理しやすい |
-| ログ | `tracing` → journald (volatile) | SD に書かない |
-| 音声 | `cpal`(ALSA), `realfft` | |
-| MCU 通信 | `postcard` + COBS + CRC32 | フレーミングと破損検出 |
-| ターゲット | `aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-gnu` | Pi 3B も 64bit OS Lite で統一。`cross` または `cargo-zigbuild` でクロスビルド |
+| Art-Net / sACN | **自前実装** | プロトコル仕様準拠。ゼロアロケーション指向・境界保護を徹底するため |
+| SPI (Raspberry Pi) | `spidev` | Linux 標準カーネルドライバ経由（root 不要、DMA 転送対応） |
+| USB-Serial MCU | `serialport` | Arduino Uno 等の外部マイコンへの 115200/250000 bps パケット伝送 |
+| 制御プレーン / Web | `tiny_http` | 外部依存・ランタイムオーバーヘッドを極力排した組み込み Web/REST API |
+| 設定 | `serde` + `toml` | 構造化された可読性と現場での差分保守性 |
+| 音声解析 | `cpal` (ALSA), `realfft` | USB オーディオ入力からの低遅延デュアル解像度周波数解析 |
+| ターゲット | `aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-gnu` | Raspberry Pi 3B (64-bit OS) および Linux PC |
 
 ### 4.2 コーディング規約（安定性のための強制ルール）
 
@@ -464,15 +459,28 @@ WS2812B は各色 8bit のため、Dimmer を絞ると色が段付き・色ず�
 
 ---
 
-## 9. RDM（Art-Net 経由）
+## 9. 遠隔設定・ステータス監視・ショーロック管理
 
-ノード自身が **仮想フィクスチャごとに RDM レスポンダ**として振る舞う（ピクセルストリップ自体は RDM 非対応のため）。
+本システムは、現場での迅速なセットアップと本番時の保護のため、軽量な制御プレーン（REST API / Web UI / CLI）と照明卓自動検出（ArtPoll）を備えています：
 
-- **UID**: ESTA メーカーID + デバイスID。開発中はプロトタイプ用範囲 `0x7FF0–0x7FFF` を使用、製品化時に ESTA へ申請（無料）。Art-Net の OEM コードも同様。
-- 対応 PID:
-  - 必須: `DEVICE_INFO`, `SUPPORTED_PARAMETERS`, `SOFTWARE_VERSION_LABEL`, `DMX_START_ADDRESS`, `IDENTIFY_DEVICE`
-  - 推奨: `DEVICE_LABEL`, `MANUFACTURER_LABEL`, `DEVICE_MODEL_DESCRIPTION`, `DMX_PERSONALITY`, `DMX_PERSONALITY_DESCRIPTION`, `SLOT_INFO`, `SLOT_DESCRIPTION`, `DEFAULT_SLOT_VALUE`, `SENSOR_DEFINITION`, `SENSOR_VALUE`（SoC温度・出力fps・電圧低下フラグ）, `STATUS_MESSAGES`
-- SET による変更はアトミックに設定保存。**Show Lock 中は SET と IDENTIFY を拒否**。
+### 9.1 自動ノード検出（ArtPoll / ArtPollReply）
+- 照明卓（ChamSys MagicQ, grandMA, QLC+, Resolume 等）からの `ArtPoll`（OpCode `0x2000`）探索パケットに対し、規格準拠の `ArtPollReply`（OpCode `0x2100`）を即座に応答します。
+- ノード名、IPアドレス、ポート番号（6454）、ESTA OEMコード、購読ユニバース番号、稼働FPSを自動通知し、照明卓のネットワーク画面から一目で検出・確認可能です。
+
+### 9.2 REST API & Web UI による動的設定
+- ポート 8080（設定可能）にて組み込み Web サーバー（`tiny_http`）が稼働し、オフライン環境でも完全動作するダッシュボードと REST API を提供します。
+- エンドポイント:
+  - `GET /api/status`: 稼働時間、FPS、受信パケット数、DMX チャンネル値、推定消費電力（ABL）、音声同期状態の取得。
+  - `GET /api/config` / `POST /api/config`: ノード名、パーソナリティ、ユニバース、アドレス、ピクセル数、色順、フェイルセーフ設定の取得・動的更新。
+  - `POST /api/test`: リグ点検パターン（RGBW順次、アドレスウォーカー、全白パワーソーク、ストロボ、任意カラー）の起動・停止。
+  - `POST /api/lock`: ショーロック（Show Lock）の有効化・無効化。
+
+### 9.3 Show Lock（本番ショー誤操作防止保護）
+- 本番演奏中の事故を防ぐため、`show_lock = true`（設定または `pxtool lock --enable`）が有効化されている間は、Web UI および REST API からの設定変更リクエストをすべて拒否（HTTP 423 Locked）します。
+
+> [!NOTE]
+> **ANSI E1.20 RDM について**:  
+> 現行バージョンでは、設定変更および監視は Web UI / REST API / `pxtool` CLI を通じて行われます。Art-Net 経由の E1.20 RDM（`ArtRdm` による PID の GET/SET）は本リリースには含まれておらず、将来的なプロトコル拡張候補として位置付けられています。
 
 ---
 
@@ -649,7 +657,9 @@ universe = 1
 
 ---
 
-## 11.1 ヘッドレス運用向け Web 管理インターフェース & REST API
+## 11. 制御プレーン（Web 管理 UI & ArtPollReply レスポンダ）
+
+### 11.1 ヘッドレス運用向け Web 管理インターフェース & REST API
 
 本番環境（ステージトラス上やラック内）に設置されたヘッドレスの Raspberry Pi に対し、ブラウザ（スマホ・タブレット・PC）から直接状態監視と設定変更を行える Web UI および REST API を内蔵します。
 
@@ -659,11 +669,9 @@ universe = 1
   1. **リアルタイムテレメトリ監視**: 描画 FPS（50.0 FPS）、総フレーム数、Art-Net / sACN 受信パケット数、ABL 推定消費電流（A/%）、DMX ch 1〜12 の値・進捗バー表示、接続ユニバース状態、音声同期ステータス（BPM / Energy / Kick / Snare / HiHat）。
   2. **現場リグチェック（セルフテスト）**: 卓なしでブラウザから即座に点検パターン（RGBW順次、アドレスウォーカー、100%全点灯パワーソーク、高速ストロボ、任意カラー指定）を起動・停止。
   3. **動的設定変更 & アトミック保存**: ノード名、バインドIP、パーソナリティ、ユニバース、チャンネル、ピクセル数、色順、フェイルセーフ設定をブラウザから編集し、`/etc/pixelnode/config.toml` にアトミック保存・即時適用。
-  4. **Show Lock（誤操作防止ロック）**: 本番ショウ中の誤操作を防ぐため、ロック時は Web UI および REST API からの設定変更・リグチェック割り込みを拒否（HTTP 403 Forbidden）。
+  4. **Show Lock（誤操作防止ロック）**: 本番ショウ中の誤操作を防ぐため、ロック時は Web UI および REST API からの設定変更・リグチェック割り込みを拒否（HTTP 423 Locked）。
 
----
-
-## 11.2 Art-Net 自動検出（ArtPollReply レスポンダ）
+### 11.2 Art-Net 自動検出（ArtPollReply レスポンダ）
 
 ChamSys MagicQ、grandMA、Resolume Arena、QLC+ などの照明卓・メディアサーバは、ネットワーク上のノードを発見するために `ArtPoll`（OpCode `0x2000`）ブロードキャストを送信します。
 本システムはこれに対し、規格準拠の `ArtPollReply`（OpCode `0x2100`、239バイト）を即座に応答します。
@@ -678,55 +686,86 @@ ChamSys MagicQ、grandMA、Resolume Arena、QLC+ などの照明卓・メディ�
 
 ---
 
-## 12. テスト・検証戦略
+## 12. 対応LEDテープ・プリセットカタログおよび現場電気設計仕様
+
+### 12.1 内蔵プリセットプロファイル仕様一覧
+
+現場で頻繁に導入されるテープ種別をあらかじめプロファイル定義しており、`pxtool config preset` または `pxtool config init` より即座に設定生成が可能です：
+
+| プリセット識別子 | 製品仕様・素子構成 | 電圧 | 長さ | 制御ピクセル | 物理LED数 | 色順 | 推奨ABL上限 | 電源注入・配線指針 |
+|:---|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---|
+| **`btf_fcob_576_24v_10m`** | **BTF-LIGHTING FCOB**<br>576 LEDs/m, 36素子/IC | **24V** | 10m | **160 px**<br>(16 px/m) | 5,760 球 | **RGB** | 7,000 mA<br>(~150W max) | 両端（0m/10m）注入必須。常時全白運用時は5m中間点も注入推奨 |
+| **`nobrand_60led_12v_5m`** | **ノーブランド SMD 5050**<br>60 LEDs/m, 3素子/IC | **12V** | 5m | **100 px**<br>(20 px/m) | 300 球 | **RBG**<br>(青緑反転) | 6,000 mA<br>(~72W max) | 両端（0m/5m）注入必須。無注入時は末端で赤黄変（10V未満にドロップ） |
+| **`ws2812b_60led_5v_5m`** | **汎用 WS2812B SMD**<br>60 LEDs/m, 1素子/IC | **5V** | 5m | **300 px**<br>(60 px/m) | 300 球 | **GRB** | 15,000 mA<br>(~75W max) | 両端注入に加え、2〜2.5mごとの中間電源注入が必須 |
+
+### 12.2 電気設計・電圧降下（Voltage Drop）の計算と対策
+
+LEDストリップのフレキシブル基板（FPC）銅箔パターンは薄く（通常 1oz〜2oz = 約 35µm〜70µm）、長距離通電時に無視できない電気抵抗 $R_{\text{trace}}$ を持ちます。
+
+$$\Delta V = 2 \times I_{\text{total}} \times R_{\text{trace}}$$
+
+* **なぜ 24V ストリップ（BTF FCOB）が長距離に有利なのか**:
+  同一消費電力（例: 150W）を供給する場合、
+  $$I_{24\text{V}} = \frac{150\text{W}}{24\text{V}} = 6.25\text{A}, \quad I_{12\text{V}} = \frac{150\text{W}}{12\text{V}} = 12.5\text{A}, \quad I_{5\text{V}} = \frac{150\text{W}}{5\text{V}} = 30.0\text{A}$$
+  銅箔の発熱損失（ジュール熱 $P_{\text{loss}} = I^2 R$）は電流の2乗に比例するため、24V は 12V に比べ**損失が $\frac{1}{4}$**、5V に比べ**約 $\frac{1}{23}$** に激減します。
+* **それでも 10m で両端注入が必要な理由**:
+  24V ストリップでも 10m の長さをフルホワイト（6.25A）で連続点灯すると、銅箔抵抗（約 0.3〜0.5Ω）により末端または中央で 2〜3V 以上の降下が生じ、発熱と輝度ムラの原因となります。そのため、**給電線（AWG 14〜16）を用いて 0m と 10m の両端から電源注入**を行います。
+* **12V テープ（5m）の注意点**:
+  12V テープは 5m で約 6A を消費します。片端のみの給電では末端で 9.5V 付近まで落ち、青・緑用 LED の $V_f$（順方向電圧 約 3.0〜3.2V × 3直列 = 9.0〜9.6V）を下回って白が赤黄色に変色します。**必ず 0m と 5m の両端注入**を実施してください。
+
+### 12.3 信号レベル・配線ノイズ対策
+
+* **共通グラウンド（Common Ground）**:
+  LED用電源（24V/12V）のマイナス端子とコントローラー（Raspberry Pi / Arduino）の GND 端子は**太い導線で共通接続**してください。電位差が生じるとデータ信号の High/Low 判定が狂い、LEDが激しく点滅します。
+* **信号レベル変換（Level Shifter）**:
+  Raspberry Pi の GPIO は 3.3V 出力です。WS2811 の $V_{IH}$（High判定しきい値）は 5V 電源時の 70%（約 3.5V）以上と規定されているため、3.3V 直結はノイズマージンが極小です。74AHCT125 による高速 CMOS レベルシフタを必ず介してください。
+* **ダンピング抵抗**:
+  ケーブルの特性インピーダンス不整合による信号反射を防ぐため、コントローラー出力直後に 33Ω〜100Ω（Pi + 74AHCT125）または 330Ω〜470Ω（Arduino Uno 5V 出力）の直列抵抗を挿入してください。
+
+---
+
+## 13. テスト・検証戦略
 
 | 種別 | 内容 |
 |------|------|
-| ユニットテスト | パーサ、マージ、チャンネル解釈、パターン（時刻注入で決定論的） |
-| ゴールデンテスト | 入力 DMX + 時刻 → 出力ピクセル列をスナップショット比較 |
-| Fuzz | Art-Net / sACN / RDM / MCU プロトコルの全パーサ（cargo-fuzz） |
+| ユニットテスト | パーサ、マージ、チャンネル解釈、パターン（時刻注入で決定論的）、プロファイル算出 |
+| ゴールデンテスト | 入力 DMX + 時刻 → 出力ピクセル列のスナップショット比較 |
+| 実機ハードウェアテスト | `tests/test_real_hardware.sh` による Arduino Uno 実機（/dev/ttyUSB0）検証（CRC-8、スケーリング、色順、DMX、ストロボ、ABL） |
 | プロパティテスト | マージ則・電力制限の不変条件（proptest） |
 | アロケーション検査 | 起動後のデータプレーンでヒープ確保ゼロ |
 | 障害注入 | LAN 抜き差し、SIGKILL、音声プロセス停止、ソースのフラッピング、ゴミパケット洪水 |
-| ソークテスト | **72 時間連続**、最大レートの送信 + 異常系を混ぜて、取りこぼし・メモリ増加・レイテンシ悪化がないこと |
-| 実機波形 | ロジックアナライザ（sigrok）で WS281x タイミングを実測 |
-| CI | aarch64 / x86_64 のクロスビルド、clippy（deny 設定）、テスト、fuzz の短時間実行 |
+| 実機波形確認 | ロジックアナライザによる WS2811 タイミング実測 |
+| CI | クロスビルド、clippy（deny 設定）、全ユニットテスト実行 |
 
 ---
 
-## 13. 開発ロードマップ
+## 14. 開発ロードマップ
 
 | Phase | 内容 | 完了条件 |
 |-------|------|---------|
-| 0 | HW 立ち上げ: SPI で WS2811 24V 1 ライン点灯、レベル変換 (74AHCT125)、波形実測 | ロジアナで規格内 |
-| 1 (MVP) | Art-Net / sACN 受信、マージ、**Preset 7ch** ＋ **Pixel Direct（マルチユニバース跨ぎ）**、SPI 出力、systemd、Hold フェイルセーフ、リグチェックテスト、TOML 設定 | MagicQ / QLC+ から 7ch & 個別制御で操作でき、24 時間連続動作 |
-| 2 | パターンライブラリ、ストロボ、ArtPollReply 完全対応、ABL（電力制限）、Web UI（状態表示・設定・リグチェック）、メトリクス | 72 時間ソーク合格 |
-| 3 | RDM レスポンダ、パーソナリティ切替、Show Lock、GDTF / QLC+ / MagicQ / Daslight プロファイル出力 | 各種卓から RDM / パッチで検出・設定 |
-| 4 | ホストPC用 `audio-host-sender`、Pi用 `audio-analyzerd`、デュアル解像度 FFT、Audio Mode | 生演奏音声への同期・途絶時グレースフル復帰 |
-| 5 | RP2040 / USB-MCU ファーム + USB 出力ドライバ、x86_64 対応、DMX512 UART 入出力 | 複数ライン・多台数USB接続での安定駆動 |
-| 6 | 読み取り専用 FS、パッケージング、現場チェックリスト | 本番投入 |
-
-※ fuzz・ソーク・障害注入は Phase 1 から継続的に実施。
+| 0 | HW 立ち上げ: SPI で WS2811 24V 1 ライン点灯、レベル変換 (74AHCT125)、波形実測 | 規格内信号出力 |
+| 1 (MVP) | Art-Net / sACN 受信、マージ、**Preset 7ch** ＋ **Pixel Direct**、SPI 出力、Hold フェイルセーフ、リグチェックテスト、TOML 設定 | 卓からの 7ch / 個別制御動作 |
+| 2 | 24種点灯パターン、24種音声同期、ArtPollReply 自動検出、ABL（電力制限）、Web UI（状態表示・設定・リグチェック） | 安定連続稼働 |
+| 3 | Arduino Uno (ATmega328P) USB-Serial ファームウェア (`serial_mcu`)、WDT保護、実機統合テスト自動化 | 実機 18項目テスト合格 |
+| 4 | LEDテープ・プリセットカタログ（BTF 24V / ノーブランド 12V RBG）、対話型初期設定ウィザード（`pxtool config init`） | 現場設定自動化 |
+| 5 | 音声解析デーモン（`audio-analyzerd` / `audio-host-sender`）、生演奏向けデュアル解像度 FFT | 音響同期演出実証 |
 
 ---
 
-## 14. 確定要件サマリー（設計方針の合意事項）
+## 15. 確定要件サマリー（設計方針の合意事項）
 
 1. **DMX アドレス消費対策 & 動作モード**:
-   - **Preset 7ch モード（基本・推奨）**: わずか 7ch でマスター調光/ストロボ、RGBWベース色、点灯パターン(ch 6)、音声同期パターン(ch 7) を制御。ch 7 ≥ 1 のときは音声自動演出が最優先（オーバーライド）。
+   - **Preset 7ch モード（基本・推奨）**: わずか 7ch でマスター調光/ストロボ、RGBWベース色、点灯パターン(ch 6)、音声同期パターン(ch 7) を制御。ch 7 ≥ 8 のときは音声演出が最優先（ch 6 をオーバーライド）。
    - **Pixel Direct RGB モード（個別制御）**: ピクセル数 × 3ch。170px/ユニバース境界で次ユニバースへ自動展開（マルチユニバース跨ぎ対応）。
 2. **音声同期 & 解析方針**:
-   - **音源ホストPC側で解析**し、超軽量 UDP 特徴量パケット（約64バイト, 60〜100Hz）をブロードキャスト送信する構成を主軸とする（Pi 3B の CPU・LAN 負荷をほぼゼロ化し、複数ノード完全同期を実現）。
-   - バンド生演奏特化の **デュアル解像度 FFT**（ドラムアタック用 512サンプル高速窓 ＋ キック/ベース分離用 2048サンプル高分解能窓）を採用し、レイテンシ < 10ms を達成。
-   - Pi 単体運用（USBライン入力）用の `audio-analyzerd` も同等プロトコルで互換提供。
+   - 音源ホストPC側で解析し、超軽量 UDP 特徴量パケット（約64バイト）をブロードキャスト送信する構成を主軸とし、Pi 単体運用時はローカルの `audio-analyzerd` で受ける。
+   - バンド生演奏特化の **デュアル解像度 FFT**（ドラムアタック用 512サンプル高速窓 ＋ キック/ベース分離用 2048サンプル高分解能窓）を採用。
 3. **ハードウェア & ストリップ**:
-   - メインターゲットは **WS2811 24V (576 LEDs/m)**。色順はロット差に対応するため `BRG` / `RGB` / `GRB` を設定可能。
-   - 3.3V → 5V レベルシフタ（74AHCT125）必須。Pi 単体は SPI0（GPIO10）DMA駆動。
-   - 将来の大規模展開（複数ライン、x86 Linux PC併用、複数USB-Arduino/RP2040接続）を見越し、出力層を `trait PixelSink` で完全抽象化。
-4. **照明卓・ソフトウェア連携**:
-   - **MagicQ (ChamSys), QLC+, Daslight (Nicolaudie)** をメインターゲットとし、それぞれの専用プロファイル（`.hed`, `.qxf`, `.ssl2`）および標準 GDTF を自動生成/同梱。
-   - WS2811 (RGB) 使用時の White チャンネル挙動は、RGB合成（色温度展開）または無視を設定可能。
-5. **プロ現場仕様のフェイルセーフ & セルフテスト**:
-   - 信号断時は **`Hold`（最終状態無限保持）** を既定とし、事故ブラックアウトを絶対防止。`hold_then_fade` や `fallback_scene` も選択可能。
-   - 信号復帰時は整合性チェックとスルーレートリミットによるグリッチフリー復帰。
-   - 卓やネットワークが未接続でも現場で単体点検できる **4種類のリグチェック・テストパターン（RGBW順次、アドレスウォーカー、100%全点灯パワーソーク、高頻度ストロボ）** を標準装備。
+   - **BTF-LIGHTING FCOB 24V (576 LEDs/m, 10m)**: 36素子/IC -> 160 px, RGB, 24V。
+   - **ノーブランド SMD 12V (60 LEDs/m, 5m)**: 3素子/IC -> 100 px, RBG, 12V。
+   - レベルシフタ（74AHCT125）またはダンピング抵抗による信号保護、両端電源注入の必須化。
+   - 出力ドライバ層は `trait PixelSink` により抽象化（Raspberry Pi ネイティブ SPI、Arduino Uno USB-Serial、仮想コンソール）。
+4. **現場運用指向のフェイルセーフ & セルフテスト**:
+   - 信号断時は **`Hold`（最終状態無限保持）** を既定とし、事故ブラックアウトを防止。`hold_then_fade` も選択可能。
+   - 卓やネットワークが未接続でも現場で単体点検できる **リグチェック・テストパターン（RGBW順次、アドレスウォーカー、100%全点灯パワーソーク、高頻度ストロボ）** を装備。
+   - 対話型セットアップウィザード（`pxtool config init`）およびプリセット（`pxtool config preset`）による現場ミスの抑制。

@@ -1,0 +1,60 @@
+# PixelNode Configuration
+# Preset: BTF-LIGHTING FCOB 576 LEDs/m 24V (10m) via Arduino Uno USB-Serial
+# Total Pixels: 160 (36 LEDs/IC, 16 px/m * 10m = 160 ICs, 5,760 physical LEDs)
+# Color Order: rgb | Voltage: 24V
+
+[node]
+name = "Stage-BTF-FCOB-Arduino"
+show_lock = false
+
+[network]
+artnet = true
+sacn = true
+bind_ip = "0.0.0.0"
+
+[web]
+enabled = true
+port = 8080
+bind_ip = "0.0.0.0"
+
+[audio]
+enabled = true
+listen_udp_port = 8765
+timeout_ms = 500
+
+[failsafe]
+on_data_loss = "hold"
+hold_timeout_sec = 10
+fade_duration_sec = 3
+
+[[output]]
+id = "out1"
+driver = "serial_mcu"
+device = "/dev/ttyUSB0"
+baud_rate = 115200
+chip = "ws2811"
+color_order = "rgb"
+pixels = 160
+psu_max_current_ma = 7000
+
+[[fixture]]
+output = "out1"
+pixel_range = [0, 159]
+personality = "preset_7ch"
+white_mode = "rgb_blend"
+universe_span = "per_170px"
+universe = 1
+address = 1
+
+# ==============================================================================
+# FIELD INSTALLATION & WIRING NOTES (BTF-LIGHTING FCOB 24V 10m with Arduino Uno)
+# ==============================================================================
+# Power:
+#   - Supply: 24V DC regulated power supply (>= 8A / 200W recommended).
+#   - Injection: Inject 24V and DC GND at BOTH ends (0m and 10m).
+#
+# Signal & Ground:
+#   - Common Ground: Connect 24V PSU DC negative to Arduino Uno GND pin.
+#   - Data Line: Arduino Pin D6 -> 330 ohm series damping resistor -> Strip DI.
+#   - CAUTION: NEVER connect 24V DC to Arduino Uno 5V/VIN or data pins!
+# ==============================================================================

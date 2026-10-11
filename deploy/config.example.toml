@@ -3,7 +3,7 @@
 
 [node]
 name = "Stage-WS2811-Node1"
-show_lock = false               # If true, locks RDM SET and Web configuration changes during live show
+show_lock = false               # If true, locks Web UI and REST API configuration changes during live show
 
 [network]
 artnet = true                   # Listen on UDP 6454

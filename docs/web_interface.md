@@ -16,7 +16,7 @@ http://<node-ip-address>:8080/
 
 Example: `http://192.168.1.50:8080/`
 
-> **Note**: The web interface is completely self-contained. It requires **no internet access**, no external fonts, and no CDN dependencies. It functions perfectly in completely offline production networks.
+> **Note**: The web interface is self-contained. It requires **no internet access**, no external fonts, and no CDN dependencies. It functions in completely offline production networks.
 
 ---
 
@@ -37,7 +37,7 @@ Allows stage technicians to test LED strips directly from their phone/tablet wit
 * **Power Soak 100%**: Sets all LEDs to 100% white to test 24V power supply and voltage sag across the line.
 * **High-Rate Strobe**: 40Hz test strobe to verify SPI signal timing.
 * **Custom Color Picker**: Interactive color wheel & palette (Warm White, Amber, Cyan, Magenta, etc.).
-* **STOP / Return to DMX**: Instantly restores lighting desk control.
+* **STOP / Return to DMX**: Restores lighting desk control.
 
 ### 3. Configuration Management View
 * Edit Node Name, Bind IP, Art-Net/sACN toggle.
