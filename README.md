@@ -179,6 +179,7 @@ Comprehensive architectural notes and references are provided in the [`docs/`](d
 * **[Web Management Interface Reference](docs/web_interface.md)**: REST API documentation and dashboard capabilities.
 * **[Raspberry Pi 3B Setup Guide](deploy/raspi3b_setup.md)**: Hardware wiring, level shifter integration, and OS stabilization guide.
 * **[Arduino Uno USB Interface Guide](docs/arduino_uno_guide.md)**: Hardware wiring, USB serial framing, failsafe policies, and firmware upload for ATmega328P.
+* **[Real Hardware Testing Guide](docs/real_hardware_testing_guide.md)**: Diagnostic test suite for physical Arduino Uno, pixel sweeps, color order validation, and field inspection.
 
 ---
 

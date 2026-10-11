@@ -178,6 +178,7 @@ sudo cp deploy/config.example.toml /etc/pixelnode/config.toml
 * **[Web 管理インターフェース リファレンス](docs/web_interface.md)**: Web ダッシュボードの機能と REST API 仕様。
 * **[Raspberry Pi 3B セットアップガイド](deploy/raspi3b_setup.md)**: ハードウェア結線図、レベル変換回路、OS 安定化設定手順。
 * **[Arduino Uno USB インターフェース導入ガイド](docs/arduino_uno_guide.md)**: ハードウェア結線図、USB シリアルフレーミングプロトコル、フェイルセーフ仕様、ファームウェア書き込み手順。
+* **[実機ハードウェア統合テスト手順書](docs/real_hardware_testing_guide.md)**: 実機 Arduino Uno 接続時の自動ストレステスト、LED数スキャン、RGB配列検証、現場目視点検モード仕様。
 
 ---
 

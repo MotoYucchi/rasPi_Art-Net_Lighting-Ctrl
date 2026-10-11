@@ -168,6 +168,12 @@ Run the strict conformance test suite locally using Cargo and native C++:
 ```bash
 # Run cross-language and native C++ conformance tests:
 PATH="$HOME/.cargo/bin:$PATH" cargo test --test arduino_conformance_test
+
+# Run exhaustive real hardware test matrix (pixel sweeps, color orders, DMX, strobe, ABL):
+./tests/test_real_hardware.sh
+
+# Run interactive visual inspection for field technicians:
+./tests/test_real_hardware.sh --mode interactive
 ```
 
-All 24 autonomous patterns, 24 audio patterns, CRC-8 integrity vectors, and packet parser error recoveries will be automatically verified against the reference implementation.
+For complete test options, troubleshooting, and matrix details, see the **[Real Hardware Testing Guide](real_hardware_testing_guide.md)**.
