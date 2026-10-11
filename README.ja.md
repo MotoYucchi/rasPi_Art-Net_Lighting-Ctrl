@@ -76,7 +76,7 @@ PixelNode は、以下の 3 つの主要コンポーネントで構成されて�
      +-----------------+       +-----------------+    +-----------------+
 ```
 
-* **`pixelnoded`**: ネットワーク DMX を受信し、パーソナリティ解釈、パターン描画、電力制限、SPI 送信、および Web UI / REST API を司るコアデーモン。
+* **`pixelnoded`**: ネットワーク DMX を受信し、パーソナリティ解釈、パターン描画、電力制限、ハードウェア出力、および Web UI / REST API を司るコアデーモン。Raspberry Pi ネイティブ SPI 出力（`spi_ws281x`）に加え、フェイルセーフ保護・WDT を備えた Arduino Uno（ATmega328P）USB シリアル出力（`serial_mcu` / `usb_serial`）にも標準対応。
 * **`pxtool`**: 稼働中のノード状態の確認、スタンドアロンでの点検パターン発光、ネットワークパケット監視、設定変更を行う現場作業用 CLI。
 * **`audio-analyzerd`**: Raspberry Pi 単体運用時、USB ライン入力音声をデュアル解像度 FFT 解析して UDP 経由で特徴量フレームを配信する補助デーモン。
 
@@ -177,6 +177,7 @@ sudo cp deploy/config.example.toml /etc/pixelnode/config.toml
 * **[CLI リファレンスマニュアル (`pxtool`)](docs/cli_reference.md)**: コマンドライン構文、パケットスニッファー、現場活用レシピ。
 * **[Web 管理インターフェース リファレンス](docs/web_interface.md)**: Web ダッシュボードの機能と REST API 仕様。
 * **[Raspberry Pi 3B セットアップガイド](deploy/raspi3b_setup.md)**: ハードウェア結線図、レベル変換回路、OS 安定化設定手順。
+* **[Arduino Uno USB インターフェース導入ガイド](docs/arduino_uno_guide.md)**: ハードウェア結線図、USB シリアルフレーミングプロトコル、フェイルセーフ仕様、ファームウェア書き込み手順。
 
 ---
 

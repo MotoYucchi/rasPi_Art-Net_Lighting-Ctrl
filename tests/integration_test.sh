@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -e
+export no_proxy="127.0.0.1,localhost"
+export NO_PROXY="127.0.0.1,localhost"
 
 echo "=== PixelNode System Integration Test ==="
 
@@ -106,5 +108,10 @@ echo "Triggering remote test pattern..."
 # 5. Run rig-check standalone test
 echo "Running Rig Check (RGBW Cycle 1s)..."
 ./target/debug/pxtool test --mode rgbw --pixels 10 --duration 1
+
+# 6. Run Arduino Uno Conformance Suite
+echo "Running Arduino Uno Conformance Suite..."
+g++ -std=c++11 -Wall -Wextra -Werror firmware/arduino_uno/test_conformance.cpp -o target/arduino_test_conformance
+./target/arduino_test_conformance
 
 echo "=== Integration Test Succeeded! ==="

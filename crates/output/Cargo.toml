@@ -9,3 +9,4 @@ engine = { path = "../engine" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 spidev = "0.6"
+libc = "0.2"

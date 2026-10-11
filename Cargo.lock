@@ -924,6 +924,7 @@ name = "output"
 version = "0.1.0"
 dependencies = [
  "engine",
+ "libc",
  "spidev",
 ]
 

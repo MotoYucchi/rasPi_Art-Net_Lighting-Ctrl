@@ -76,7 +76,7 @@ The PixelNode ecosystem consists of three main components:
      +-----------------+       +-----------------+    +-----------------+
 ```
 
-* **`pixelnoded`**: Core service daemon that handles network DMX ingestion, fixture personality decoding, pattern synthesis, power limiting, and SPI transmission. Also serves the local web dashboard.
+* **`pixelnoded`**: Core service daemon that handles network DMX ingestion, fixture personality decoding, pattern synthesis, power limiting, and hardware output. Supports Raspberry Pi native SPI (`spi_ws281x`) as well as Arduino Uno (ATmega328P) USB-Serial MCU bridge (`serial_mcu` / `usb_serial`) with fail-safe watchdog protection. Also serves the local web dashboard.
 * **`pxtool`**: Field CLI utility for querying telemetry, triggering test patterns, sniffing network DMX packets, and modifying runtime settings.
 * **`audio-analyzerd`**: Optional helper process for analyzing local audio input (via USB line-in) and broadcasting compact feature frames (`AudioFeaturePacket`) over UDP.
 
@@ -178,6 +178,7 @@ Comprehensive architectural notes and references are provided in the [`docs/`](d
 * **[CLI Reference Manual (`pxtool`)](docs/cli_reference.md)**: Command-line syntax, packet sniffer, and diagnostic recipes.
 * **[Web Management Interface Reference](docs/web_interface.md)**: REST API documentation and dashboard capabilities.
 * **[Raspberry Pi 3B Setup Guide](deploy/raspi3b_setup.md)**: Hardware wiring, level shifter integration, and OS stabilization guide.
+* **[Arduino Uno USB Interface Guide](docs/arduino_uno_guide.md)**: Hardware wiring, USB serial framing, failsafe policies, and firmware upload for ATmega328P.
 
 ---
 

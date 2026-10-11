@@ -82,9 +82,11 @@ pub struct FailsafeConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputDeviceConfig {
     pub id: String,
-    pub driver: String, // spi_ws281x | virtual
+    pub driver: String, // spi_ws281x | serial_mcu | usb_serial | virtual
     #[serde(default = "default_spi_device")]
     pub device: String,
+    #[serde(default = "default_baud_rate")]
+    pub baud_rate: u32,
     #[serde(default = "default_chip")]
     pub chip: String,
     #[serde(default = "default_color_order")]
@@ -117,6 +119,7 @@ fn default_failsafe_policy() -> String { "hold".to_string() }
 fn default_hold_timeout() -> u64 { 10 }
 fn default_fade_duration() -> u64 { 3 }
 fn default_spi_device() -> String { "/dev/spidev0.0".to_string() }
+fn default_baud_rate() -> u32 { 115200 }
 fn default_chip() -> String { "ws2811".to_string() }
 fn default_color_order() -> String { "brg".to_string() }
 fn default_psu_max_ma() -> u32 { 15000 }
@@ -325,6 +328,17 @@ address = 1
             }
             Err(e) => {
                 warn!("Failed to open SPI device '{}': {}. Falling back to virtual sink.", first_out.device, e);
+                Box::new(output::VirtualSimSink::new())
+            }
+        },
+        #[cfg(target_os = "linux")]
+        "serial_mcu" | "usb_serial" => match output::serial_mcu::SerialMcuSink::open(&first_out.device, first_out.baud_rate) {
+            Ok(sink) => {
+                info!("Initialized USB-Serial MCU output on '{}' (baud: {})", first_out.device, first_out.baud_rate);
+                Box::new(sink)
+            }
+            Err(e) => {
+                warn!("Failed to open Serial MCU device '{}': {}. Falling back to virtual sink.", first_out.device, e);
                 Box::new(output::VirtualSimSink::new())
             }
         },

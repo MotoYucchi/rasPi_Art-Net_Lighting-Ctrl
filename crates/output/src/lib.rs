@@ -2,8 +2,11 @@
 //!
 //! Hot path is bounded and allocation-free after initial setup.
 
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+#[allow(unsafe_code)]
+pub mod serial_mcu;
 
 use core::fmt;
 
