@@ -69,15 +69,72 @@ static uint32_t last_packet_time = 0;
 static uint32_t last_render_time = 0;
 static bool in_failsafe = false;
 
+static uint8_t strip_color_order = 0; // 0=GRB, 1=RGB, 2=RBG, 3=BRG, 4=BGR, 5=GBR
+
 static void pack_render_to_strip(void) {
-    // In-place swap of R and G for WS2812 GRB transmission (only needed for local pattern rendering)
+    if (strip_color_order == 1) {
+        // RGB: no swap needed since internal render engine outputs RGB
+        return;
+    }
     for (uint16_t i = 0; i < num_pixels; i++) {
         uint16_t offset = i * 3;
         uint8_t r = strip_buffer[offset];
         uint8_t g = strip_buffer[offset + 1];
-        strip_buffer[offset]     = g;
-        strip_buffer[offset + 1] = r;
+        uint8_t b = strip_buffer[offset + 2];
+        switch (strip_color_order) {
+            case 0: // GRB (WS2812B default)
+                strip_buffer[offset]     = g;
+                strip_buffer[offset + 1] = r;
+                strip_buffer[offset + 2] = b;
+                break;
+            case 2: // RBG (Generic 12V strip)
+                strip_buffer[offset]     = r;
+                strip_buffer[offset + 1] = b;
+                strip_buffer[offset + 2] = g;
+                break;
+            case 3: // BRG (WS2811 standard)
+                strip_buffer[offset]     = b;
+                strip_buffer[offset + 1] = r;
+                strip_buffer[offset + 2] = g;
+                break;
+            case 4: // BGR
+                strip_buffer[offset]     = b;
+                strip_buffer[offset + 1] = g;
+                strip_buffer[offset + 2] = r;
+                break;
+            case 5: // GBR
+                strip_buffer[offset]     = g;
+                strip_buffer[offset + 1] = b;
+                strip_buffer[offset + 2] = r;
+                break;
+            default: // GRB fallback
+                strip_buffer[offset]     = g;
+                strip_buffer[offset + 1] = r;
+                strip_buffer[offset + 2] = b;
+                break;
+        }
     }
+}
+
+static uint8_t tx_seq = 0;
+
+static void send_status_reply(void) {
+    uint8_t frame[14];
+    frame[0] = PX_MAGIC_0;
+    frame[1] = PX_MAGIC_1;
+    frame[2] = PX_OP_STATUS_REPLY;
+    frame[3] = tx_seq++;
+    frame[4] = 7; // Len low
+    frame[5] = 0; // Len high
+    frame[6] = (uint8_t)(parser.packets_received & 0xFF);
+    frame[7] = (uint8_t)((parser.packets_received >> 8) & 0xFF);
+    frame[8] = (uint8_t)(parser.packets_crc_errors & 0xFF);
+    frame[9] = (uint8_t)(num_pixels & 0xFF);
+    frame[10] = (uint8_t)((num_pixels >> 8) & 0xFF);
+    frame[11] = dmx_state.pattern_ch6;
+    frame[12] = in_failsafe ? 1 : 0;
+    frame[13] = px_calculate_crc8(&frame[2], 11);
+    Serial.write(frame, 14);
 }
 
 static void handle_packet(const PxPacketParser* p) {
@@ -143,17 +200,27 @@ static void handle_packet(const PxPacketParser* p) {
                 if (to >= 50) {
                     link_timeout_ms = to;
                 }
+                if (p->expected_len >= 6) {
+                    strip_color_order = p->payload[5];
+                }
+                send_status_reply(); // Immediately acknowledge config update
             }
             break;
         }
 
         case PX_OP_HEARTBEAT:
+            send_status_reply();
+            break;
+
         default:
             break;
     }
 }
 
 void setup() {
+    // 1. Initialize Serial communication immediately to capture host handshake
+    Serial.begin(115200);
+
 #if defined(ARDUINO) && defined(__AVR__)
     // Enable AVR Hardware Watchdog Timer: 2.0 second timeout
     wdt_enable(WDTO_2S);
@@ -163,6 +230,12 @@ void setup() {
     digitalWrite(PIN_STATUS_LED, LOW);
 
     ws2812_init();
+
+    // Initialize packet parser
+    px_parser_init(&parser);
+
+    // Send ASCII readiness banner to host
+    Serial.println(F("PX_READY"));
 
     // -------------------------------------------------------------------------
     // Power-on Visual Confidence Check (400ms sequence):
@@ -203,12 +276,6 @@ void setup() {
     }
     ws2812_show(strip_buffer, num_pixels * 3);
 
-    // Initialize packet parser
-    px_parser_init(&parser);
-
-    // Serial port initialization (115200 bps standard)
-    Serial.begin(115200);
-
     last_packet_time = millis();
     last_render_time = millis();
 }
@@ -231,7 +298,8 @@ void loop() {
     float t_sec = (float)now * 0.001f;
 
     // 2. Link Timeout & Fail-safe Handling
-    if ((now - last_packet_time) > link_timeout_ms) {
+    bool link_timed_out = (now - last_packet_time) > link_timeout_ms;
+    if (link_timed_out) {
         if (!in_failsafe) {
             in_failsafe = true;
             if (failsafe_policy == PX_FAILSAFE_BLACKOUT) {
@@ -240,9 +308,6 @@ void loop() {
                 }
                 ws2812_show(strip_buffer, num_pixels * 3);
             }
-            // In PX_FAILSAFE_HOLD mode, the last frame is ALREADY latched into the LEDs!
-            // WS2812 retains its PWM state in hardware. DO NOT continuously refresh!
-            // Leaving interrupts enabled keeps serial RX alive so host packets are never dropped.
         }
 
         if (failsafe_policy == PX_FAILSAFE_AUTONOMOUS) {
@@ -255,9 +320,12 @@ void loop() {
                 ws2812_show(strip_buffer, num_pixels * 3);
             }
         }
-    } else if (dmx_state.has_dmx_command) {
-        // 3. Render DMX command pattern if receiving OP_DMX_CHANNELS at 50 FPS (every 20ms)
-        if (now - last_render_time >= 20) {
+    }
+
+    // 3. Autonomous DMX Pattern Rendering (active when dmx_command is received and not blacked out)
+    if (dmx_state.has_dmx_command) {
+        bool is_blackout = in_failsafe && (failsafe_policy == PX_FAILSAFE_BLACKOUT);
+        if (!is_blackout && (now - last_render_time >= 20)) {
             last_render_time = now;
             uint8_t audio_slot = dmx_state.audio_ch7 / 8;
             if (audio_slot > 0) {
@@ -272,7 +340,14 @@ void loop() {
         }
     }
 
-    // 4. Status LED indication
+    // 4. Periodic telemetry status reply (1 Hz) to notify host of MCU health & packet count
+    static uint32_t last_status_tx = 0;
+    if (now - last_status_tx >= 1000) {
+        last_status_tx = now;
+        send_status_reply();
+    }
+
+    // 5. Status LED indication
     if (in_failsafe) {
         digitalWrite(PIN_STATUS_LED, (now / 250) % 2 == 0 ? HIGH : LOW); // Fast blink warning
     } else {

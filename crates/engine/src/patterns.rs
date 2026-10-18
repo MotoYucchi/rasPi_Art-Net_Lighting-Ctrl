@@ -549,9 +549,80 @@ pub fn render_pattern(
             }
         }
 
-        // Slots 24..=31: Fallback / Future Reserve
+        // Slot 24: Center Ripple Pulse (Multi-wave expanding ripple with inner decay)
+        24 => {
+            let wavelength = (count_f * 0.25 * size_norm).max(3.0);
+            let inv_wavelength = 1.0 / wavelength;
+            let speed = t * speed_mult * 30.0;
+            let center = (count_f - 1.0) * 0.5;
+
+            for (i, px) in out.iter_mut().enumerate() {
+                let dist = (i as f32 - center).abs();
+                let phase = (dist - speed).rem_euclid(wavelength) * inv_wavelength;
+                let crest = (1.0 - phase) * (1.0 - phase);
+                let intensity = crest * (1.0 - phase); // cubic falloff for crisp wave crest
+                *px = scale_color(base_color, intensity);
+            }
+        }
+
+        // Slot 25: Dual-Tone Color Wave (Smooth continuous transition between two vivid hues)
+        25 => {
+            let color2 = if base_color.r == base_color.g && base_color.g == base_color.b {
+                RgbColor {
+                    r: 255 - base_color.r,
+                    g: 128,
+                    b: base_color.r,
+                }
+            } else {
+                RgbColor {
+                    r: base_color.g,
+                    g: base_color.b,
+                    b: base_color.r,
+                }
+            };
+
+            let spatial_freq = core::f32::consts::TAU / (count_f * 0.35 * size_norm).max(4.0);
+            let temporal_phase = t * speed_mult * 3.5;
+
+            for (i, px) in out.iter_mut().enumerate() {
+                let wave = ((i as f32 * spatial_freq - temporal_phase).sin() + 1.0) * 0.5;
+                *px = lerp_color(base_color, color2, wave);
+            }
+        }
+
+        // Slot 26: Directional Wave Pulse (Unidirectional cascaded attack pulses with exponential decay)
+        26 => {
+            let interval = (count_f * 0.3 * size_norm).max(3.0);
+            let inv_interval = 1.0 / interval;
+            let offset = t * speed_mult * 30.0;
+
+            for (i, px) in out.iter_mut().enumerate() {
+                let pos = (i as f32 - offset).rem_euclid(interval) * inv_interval;
+                let f = (1.0 - pos) * (1.0 - pos);
+                let intensity = f * f; // 4th power for sharp pulse head
+                *px = scale_color(base_color, intensity);
+            }
+        }
+
+        // Slot 27: Center Inward Pull (Converging waves moving inward from both ends to center)
+        27 => {
+            let wavelength = (count_f * 0.25 * size_norm).max(3.0);
+            let inv_wavelength = 1.0 / wavelength;
+            let speed = t * speed_mult * 30.0;
+            let center = (count_f - 1.0) * 0.5;
+
+            for (i, px) in out.iter_mut().enumerate() {
+                let dist = (i as f32 - center).abs();
+                let phase = (dist + speed).rem_euclid(wavelength) * inv_wavelength;
+                let intensity = phase * phase * phase; // sharp crest converging inward
+                *px = scale_color(base_color, intensity);
+            }
+        }
+
+        // Slots 28..=31: Fallback / Future Reserve
         _ => {
             out.fill(base_color);
         }
     }
 }
+

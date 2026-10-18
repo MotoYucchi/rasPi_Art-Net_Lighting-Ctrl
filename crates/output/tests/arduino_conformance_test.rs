@@ -145,12 +145,13 @@ fn test_serial_mcu_dmx_and_config_packets() {
     let captured = frame_capture.lock().unwrap().clone();
     let parsed_config = parse_packet(&captured).expect("Parse config");
     assert_eq!(parsed_config.opcode, OP_CONFIG);
-    assert_eq!(parsed_config.payload.len(), 5);
+    assert_eq!(parsed_config.payload.len(), 6);
     let px_count = u16::from_le_bytes([parsed_config.payload[0], parsed_config.payload[1]]);
     assert_eq!(px_count, 60);
     assert_eq!(parsed_config.payload[2], 1); // Failsafe mode
     let timeout = u16::from_le_bytes([parsed_config.payload[3], parsed_config.payload[4]]);
     assert_eq!(timeout, 500);
+    assert_eq!(parsed_config.payload[5], 0); // Color order code (0 = GRB)
 
     // Send DMX parameters
     frame_capture.lock().unwrap().clear();
@@ -250,6 +251,10 @@ fn test_real_hardware_serial_port_if_connected() {
             .expect("Failed to stream pixel frame to real hardware");
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
+
+    // Verify MCU telemetry status reply
+    let status = sink.poll_status();
+    println!("MCU reported status: {:?}", status);
 
     println!("Successfully streamed 50 frames (9,000 pixel bytes) to {} at 115200 baud without errors!", dev);
 }

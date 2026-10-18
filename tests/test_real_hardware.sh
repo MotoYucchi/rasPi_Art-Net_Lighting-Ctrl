@@ -205,6 +205,9 @@ run_node_instance() {
         cat "$log_file" >&2
         return 1
     fi
+
+    # Allow Arduino Uno Optiboot bootloader and setup() to fully synchronize (2.3s)
+    sleep 2.3
     echo "$pid"
 }
 
@@ -489,6 +492,11 @@ PATTERNS=(
     "64:Slot 8 (Sine Wave Breath):134,255,200,50,0,64,0"
     "128:Slot 16 (Rainbow Wave):134,255,255,255,0,128,0"
     "136:Slot 17 (Knight Rider Scanner):134,255,0,0,0,136,0"
+    "144:Slot 18 (Center Wipe):134,255,100,0,0,144,0"
+    "192:Slot 24 (Center Ripple Pulse):134,255,0,100,0,192,0"
+    "200:Slot 25 (Dual-Tone Color Wave):134,255,0,0,0,200,0"
+    "208:Slot 26 (Directional Wave Pulse):134,0,255,100,0,208,0"
+    "216:Slot 27 (Center Inward Pull):134,255,200,0,0,216,0"
 )
 
 for p_entry in "${PATTERNS[@]}"; do

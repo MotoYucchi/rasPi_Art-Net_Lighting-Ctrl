@@ -25,6 +25,7 @@ extern "C" {
 #define PX_OP_HEARTBEAT       0x03
 #define PX_OP_CONFIG          0x04
 #define PX_OP_AUDIO_FEATURES  0x05
+#define PX_OP_STATUS_REPLY    0x06
 
 #define PX_HEADER_SIZE 6 // MAGIC(2) + OPCODE(1) + SEQ(1) + LEN(2)
 #define PX_FOOTER_SIZE 1 // CRC-8(1)

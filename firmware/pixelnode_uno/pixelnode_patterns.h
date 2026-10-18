@@ -630,7 +630,83 @@ static inline void px_render_pattern(
             break;
         }
 
-        // Fallback slots 24..31
+        // Slot 24: Center Ripple Pulse (Multi-wave expanding ripple with inner decay)
+        case 24: {
+            float wavelength = (count_f * 0.25f * size_norm);
+            if (wavelength < 3.0f) wavelength = 3.0f;
+            float inv_wavelength = 1.0f / wavelength;
+            float speed = t * speed_mult * 30.0f;
+            float center = (count_f - 1.0f) * 0.5f;
+
+            for (size_t i = 0; i < count; i++) {
+                float dist = fabsf((float)i - center);
+                float phase = px_rem_euclid(dist - speed, wavelength) * inv_wavelength;
+                float crest = (1.0f - phase) * (1.0f - phase);
+                float intensity = crest * (1.0f - phase);
+                out[i] = px_scale_color(base_color, intensity);
+            }
+            break;
+        }
+
+        // Slot 25: Dual-Tone Color Wave (Smooth continuous transition between two vivid hues)
+        case 25: {
+            PxRgbColor color2;
+            if (base_color.r == base_color.g && base_color.g == base_color.b) {
+                color2.r = 255 - base_color.r;
+                color2.g = 128;
+                color2.b = base_color.r;
+            } else {
+                color2.r = base_color.g;
+                color2.g = base_color.b;
+                color2.b = base_color.r;
+            }
+
+            float width_val = count_f * 0.35f * size_norm;
+            if (width_val < 4.0f) width_val = 4.0f;
+            float spatial_freq = (float)TAU / width_val;
+            float temporal_phase = t * speed_mult * 3.5f;
+
+            for (size_t i = 0; i < count; i++) {
+                float wave = (sinf((float)i * spatial_freq - temporal_phase) + 1.0f) * 0.5f;
+                out[i] = px_lerp_color(base_color, color2, wave);
+            }
+            break;
+        }
+
+        // Slot 26: Directional Wave Pulse (Unidirectional cascaded attack pulses with exponential decay)
+        case 26: {
+            float interval = count_f * 0.3f * size_norm;
+            if (interval < 3.0f) interval = 3.0f;
+            float inv_interval = 1.0f / interval;
+            float offset = t * speed_mult * 30.0f;
+
+            for (size_t i = 0; i < count; i++) {
+                float pos = px_rem_euclid((float)i - offset, interval) * inv_interval;
+                float f = (1.0f - pos) * (1.0f - pos);
+                float intensity = f * f;
+                out[i] = px_scale_color(base_color, intensity);
+            }
+            break;
+        }
+
+        // Slot 27: Center Inward Pull (Converging waves moving inward from both ends to center)
+        case 27: {
+            float wavelength = count_f * 0.25f * size_norm;
+            if (wavelength < 3.0f) wavelength = 3.0f;
+            float inv_wavelength = 1.0f / wavelength;
+            float speed = t * speed_mult * 30.0f;
+            float center = (count_f - 1.0f) * 0.5f;
+
+            for (size_t i = 0; i < count; i++) {
+                float dist = fabsf((float)i - center);
+                float phase = px_rem_euclid(dist + speed, wavelength) * inv_wavelength;
+                float intensity = phase * phase * phase;
+                out[i] = px_scale_color(base_color, intensity);
+            }
+            break;
+        }
+
+        // Fallback slots 28..31
         default: {
             for (size_t i = 0; i < count; i++) out[i] = base_color;
             break;

@@ -19,6 +19,17 @@ pub const OP_DMX_CHANNELS: u8 = 0x02;
 pub const OP_HEARTBEAT: u8 = 0x03;
 pub const OP_CONFIG: u8 = 0x04;
 pub const OP_AUDIO_FEATURES: u8 = 0x05;
+pub const OP_STATUS_REPLY: u8 = 0x06;
+
+/// MCU Telemetry and Health Status reported from Arduino Uno
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct McuStatus {
+    pub packets_received: u16,
+    pub crc_errors: u8,
+    pub num_pixels: u16,
+    pub active_pattern: u8,
+    pub in_failsafe: bool,
+}
 
 pub const HEADER_SIZE: usize = 6; // MAGIC(2) + OPCODE(1) + SEQ(1) + LEN(2)
 pub const FOOTER_SIZE: usize = 1; // CRC-8(1)
@@ -102,6 +113,8 @@ pub fn parse_packet(buf: &[u8]) -> Result<ParsedPacket, &'static str> {
 /// USB-Serial output sink connecting to Arduino Uno or compatible MCU
 pub struct SerialMcuSink {
     writer: Box<dyn Write + Send>,
+    reader: Option<Box<dyn std::io::Read + Send>>,
+    rx_buf: Vec<u8>,
     seq: u8,
     frame_buf: Vec<u8>,
     device_path: Option<String>,
@@ -114,6 +127,8 @@ impl SerialMcuSink {
     pub fn from_writer(writer: Box<dyn Write + Send>) -> Self {
         Self {
             writer,
+            reader: None,
+            rx_buf: Vec::new(),
             seq: 0,
             frame_buf: Vec::with_capacity(HEADER_SIZE + MAX_PAYLOAD_LEN + FOOTER_SIZE),
             device_path: None,
@@ -132,6 +147,55 @@ impl SerialMcuSink {
         self.baud_rate
     }
 
+    /// Poll incoming telemetry status packet from Arduino Uno MCU (non-blocking)
+    pub fn poll_status(&mut self) -> Option<McuStatus> {
+        let reader = self.reader.as_mut()?;
+        let mut temp_buf = [0u8; 64];
+
+        // Read available non-blocking bytes from kernel buffer
+        if let Ok(n) = reader.read(&mut temp_buf) {
+            if n > 0 {
+                self.rx_buf.extend_from_slice(&temp_buf[..n]);
+            }
+        }
+
+        // Search for framed packet
+        while self.rx_buf.len() >= HEADER_SIZE + FOOTER_SIZE {
+            // Find MAGIC_0 and MAGIC_1
+            if self.rx_buf[0] != MAGIC_0 || self.rx_buf[1] != MAGIC_1 {
+                self.rx_buf.remove(0);
+                continue;
+            }
+
+            let len = u16::from_le_bytes([self.rx_buf[4], self.rx_buf[5]]) as usize;
+            let full_len = HEADER_SIZE + len + FOOTER_SIZE;
+
+            if self.rx_buf.len() < full_len {
+                break; // Incomplete packet, wait for more data
+            }
+
+            let packet_bytes: Vec<u8> = self.rx_buf.drain(0..full_len).collect();
+            if let Ok(parsed) = parse_packet(&packet_bytes) {
+                if parsed.opcode == OP_STATUS_REPLY && parsed.payload.len() >= 7 {
+                    let rx_cnt = u16::from_le_bytes([parsed.payload[0], parsed.payload[1]]);
+                    let crc_err = parsed.payload[2];
+                    let px_cnt = u16::from_le_bytes([parsed.payload[3], parsed.payload[4]]);
+                    let patt = parsed.payload[5];
+                    let failsafe = parsed.payload[6] != 0;
+                    return Some(McuStatus {
+                        packets_received: rx_cnt,
+                        crc_errors: crc_err,
+                        num_pixels: px_cnt,
+                        active_pattern: patt,
+                        in_failsafe: failsafe,
+                    });
+                }
+            }
+        }
+
+        None
+    }
+
     /// Open serial device (e.g. `/dev/ttyACM0` or `/dev/ttyUSB0`)
     #[cfg(target_os = "linux")]
     pub fn open(device_path: &str, baud_rate: u32) -> Result<Self, OutputError> {
@@ -142,7 +206,7 @@ impl SerialMcuSink {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
-            .custom_flags(libc::O_NOCTTY)
+            .custom_flags(libc::O_NOCTTY | libc::O_NONBLOCK)
             .open(device_path)
             .map_err(|e| OutputError::DeviceNotFound(format!("{}: {}", device_path, e)))?;
 
@@ -175,16 +239,20 @@ impl SerialMcuSink {
             }
         }
 
-        // Wait for Arduino Optiboot bootloader auto-reset delay (1.8s) so MCU enters user sketch
-        std::thread::sleep(std::time::Duration::from_millis(1800));
+        // Wait for Arduino Optiboot bootloader auto-reset delay (2.2s) so MCU fully completes setup()
+        std::thread::sleep(std::time::Duration::from_millis(2200));
 
         // Flush any reset garbage or bootloader echoes from kernel buffers
         unsafe {
             libc::tcflush(fd, libc::TCIOFLUSH);
         }
 
+        let reader_file = file.try_clone().ok().map(|f| Box::new(f) as Box<dyn std::io::Read + Send>);
+
         let mut sink = Self {
             writer: Box::new(file),
+            reader: reader_file,
+            rx_buf: Vec::with_capacity(128),
             seq: 0,
             frame_buf: Vec::with_capacity(HEADER_SIZE + MAX_PAYLOAD_LEN + FOOTER_SIZE),
             device_path: Some(device_path.to_string()),
@@ -222,6 +290,17 @@ impl SerialMcuSink {
         failsafe_mode: u8,
         failsafe_timeout_ms: u16,
     ) -> Result<(), OutputError> {
+        self.send_config_with_color_order(pixel_count, failsafe_mode, failsafe_timeout_ms, 0)
+    }
+
+    /// Send hardware configuration including strip color order to MCU
+    pub fn send_config_with_color_order(
+        &mut self,
+        pixel_count: u16,
+        failsafe_mode: u8,
+        failsafe_timeout_ms: u16,
+        color_order: u8,
+    ) -> Result<(), OutputError> {
         let px_bytes = pixel_count.to_le_bytes();
         let timeout_bytes = failsafe_timeout_ms.to_le_bytes();
         let payload = [
@@ -230,6 +309,7 @@ impl SerialMcuSink {
             failsafe_mode,
             timeout_bytes[0],
             timeout_bytes[1],
+            color_order,
         ];
         self.send_packet(OP_CONFIG, &payload)
     }

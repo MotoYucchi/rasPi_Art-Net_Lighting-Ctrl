@@ -143,6 +143,18 @@ struct TestArgs {
     #[arg(long, default_value_t = 115200)]
     baud: u32,
 
+    /// Play specific autonomous lighting pattern (0..31, e.g. 24 for Center Ripple, 25 for Dual Tone)
+    #[arg(long)]
+    pattern: Option<u8>,
+
+    /// Pattern animation speed (0..255, default: 128 = 1.0x)
+    #[arg(long, default_value_t = 128)]
+    speed: u8,
+
+    /// Pattern animation size/wavelength (0..255, default: 128 = 1.0x)
+    #[arg(long, default_value_t = 128)]
+    size: u8,
+
     /// Trigger test pattern on running daemon via REST API instead of local SPI/Serial
     #[arg(short, long)]
     remote: bool,
@@ -767,11 +779,19 @@ fn main() {
                 match output::serial_mcu::SerialMcuSink::open(dev, args.baud) {
                     Ok(mut sink) => {
                         println!(" Connected to Arduino Uno on '{}' (baud: {})", dev, args.baud);
-                        // Send hardware config to sync pixel count and hold timeout
-                        if let Err(e) = sink.send_config(pixels as u16, 1, 1000) {
+                        let co_code = match color_order_str.to_lowercase().as_str() {
+                            "grb" => 0,
+                            "rgb" => 1,
+                            "rbg" => 2,
+                            "brg" => 3,
+                            "bgr" => 4,
+                            "gbr" => 5,
+                            _ => 0,
+                        };
+                        if let Err(e) = sink.send_config_with_color_order(pixels as u16, 1, 1000, co_code) {
                             eprintln!(" Warning: failed to send config to MCU: {}", e);
                         } else {
-                            println!(" Synchronized MCU configuration: {} pixels", pixels);
+                            println!(" Synchronized MCU configuration: {} pixels (order: {})", pixels, color_order_str);
                         }
                         Some(sink)
                     }
@@ -797,7 +817,12 @@ fn main() {
                     break;
                 }
 
-                if args.mode == "color" {
+                if let Some(slot) = args.pattern {
+                    let base_rgb = args.color.as_deref().and_then(parse_rgb).unwrap_or([0, 220, 255]);
+                    let base_col = RgbColor { r: base_rgb[0], g: base_rgb[1], b: base_rgb[2] };
+                    let dmx_slot_val = (slot * 8).min(255);
+                    engine.render_pattern(dmx_slot_val, base_col, args.speed, args.size, elapsed, &mut out_pixels);
+                } else if args.mode == "color" {
                     let rgb = args.color.as_deref().and_then(parse_rgb).unwrap_or([255, 0, 0]);
                     out_pixels.fill(RgbColor { r: rgb[0], g: rgb[1], b: rgb[2] });
                 } else {
@@ -816,6 +841,14 @@ fn main() {
                 if let Some(ref mut sink) = serial_sink {
                     if let Err(e) = sink.write_pixels(&byte_buffer) {
                         eprintln!("Error writing to Serial MCU: {}", e);
+                    }
+                    if frame_count % 50 == 0 {
+                        if let Some(st) = sink.poll_status() {
+                            println!(
+                                "  [MCU Status] Rx: {} frames, CRC err: {}, Pixels: {}, Failsafe: {}",
+                                st.packets_received, st.crc_errors, st.num_pixels, st.in_failsafe
+                            );
+                        }
                     }
                 }
 

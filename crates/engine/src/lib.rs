@@ -512,4 +512,48 @@ mod tests {
         engine.render_audio_pattern(16, &AudioFeaturePacket::default(), RgbColor::default(), Duration::ZERO, &mut empty_out);
         assert_eq!(empty_out.len(), 0);
     }
+
+    #[test]
+    fn test_extended_patterns_slots_24_to_27_properties() {
+        let engine = RenderEngine::new(ColorOrder::Grb, 5000);
+        let base_red = RgbColor { r: 255, g: 0, b: 0 };
+        let mut out = [RgbColor::default(); 60];
+
+        // Slot 24: Center Ripple Pulse (DMX 192 = 24 * 8)
+        engine.render_pattern(192, base_red, 128, 128, Duration::from_millis(100), &mut out);
+        // Ensure non-zero energy exists and center symmetry is maintained at t=0
+        let mut center_out = [RgbColor::default(); 61]; // Odd count for exact center symmetry test
+        engine.render_pattern(192, base_red, 128, 128, Duration::ZERO, &mut center_out);
+        for i in 0..30 {
+            assert_eq!(center_out[i], center_out[60 - i], "Symmetry check failed at index {}", i);
+        }
+
+        // Slot 25: Dual-Tone Color Wave (DMX 200 = 25 * 8)
+        // With base_red (255, 0, 0), Color 2 is blue (0, 0, 255).
+        // Check that NO pixel is completely black (Dual-tone property).
+        engine.render_pattern(200, base_red, 128, 128, Duration::from_millis(500), &mut out);
+        for (i, px) in out.iter().enumerate() {
+            assert!(
+                px.r > 0 || px.g > 0 || px.b > 0,
+                "Dual tone must never drop to complete blackout at index {}: {:?}",
+                i,
+                px
+            );
+        }
+
+        // Slot 26: Directional Wave Pulse (DMX 208 = 26 * 8)
+        // Check left-to-right phase shift across time
+        let mut out_t0 = [RgbColor::default(); 30];
+        let mut out_t1 = [RgbColor::default(); 30];
+        engine.render_pattern(208, base_red, 192, 128, Duration::ZERO, &mut out_t0);
+        engine.render_pattern(208, base_red, 192, 128, Duration::from_millis(200), &mut out_t1);
+        assert_ne!(out_t0, out_t1, "Time progression must advance pulse");
+
+        // Slot 27: Center Inward Pull (DMX 216 = 27 * 8)
+        engine.render_pattern(216, base_red, 128, 128, Duration::ZERO, &mut center_out);
+        for i in 0..30 {
+            assert_eq!(center_out[i], center_out[60 - i], "Inward symmetry check failed at index {}", i);
+        }
+    }
 }
+

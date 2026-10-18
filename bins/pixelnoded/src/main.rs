@@ -178,9 +178,20 @@ fn main() {
 
     info!("Starting pixelnoded (Pixel LED Art-Net / sACN Node)...");
 
-    let config_path = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "/etc/pixelnode/config.toml".to_string());
+    let args: Vec<String> = std::env::args().collect();
+    let mut config_path = "/etc/pixelnode/config.toml".to_string();
+    let mut arg_idx = 1;
+    while arg_idx < args.len() {
+        if (args[arg_idx] == "--config" || args[arg_idx] == "-c") && arg_idx + 1 < args.len() {
+            config_path = args[arg_idx + 1].clone();
+            arg_idx += 2;
+        } else if !args[arg_idx].starts_with('-') {
+            config_path = args[arg_idx].clone();
+            arg_idx += 1;
+        } else {
+            arg_idx += 1;
+        }
+    }
 
     let config: Config = if Path::new(&config_path).exists() {
         let content = fs::read_to_string(&config_path).expect("Failed to read config file");
@@ -343,10 +354,19 @@ address = 1
                     _ => 1,
                 };
                 let timeout_ms = (config.failsafe.hold_timeout_sec as u16).saturating_mul(1000).max(500);
-                if let Err(e) = sink.send_config(first_out.pixels as u16, failsafe_mode, timeout_ms) {
+                let co_code = match first_out.color_order.to_lowercase().as_str() {
+                    "grb" => 0,
+                    "rgb" => 1,
+                    "rbg" => 2,
+                    "brg" => 3,
+                    "bgr" => 4,
+                    "gbr" => 5,
+                    _ => 0,
+                };
+                if let Err(e) = sink.send_config_with_color_order(first_out.pixels as u16, failsafe_mode, timeout_ms, co_code) {
                     warn!("Failed to send initial config packet to MCU on '{}': {}", first_out.device, e);
                 } else {
-                    info!("Configured MCU: {} pixels, failsafe mode {}", first_out.pixels, failsafe_mode);
+                    info!("Configured MCU: {} pixels, failsafe mode {}, color_order {}", first_out.pixels, failsafe_mode, first_out.color_order);
                 }
                 Box::new(sink)
             }
