@@ -184,8 +184,8 @@ static inline void ws2812_show(const uint8_t* data, uint16_t len) {
           [count] "+w" (count),
           [byte] "+r" (b)
         : [port] "e" (port),
-          [hi] "r" hi_val,
-          [lo] "r" lo_val
+          [hi] "r" (hi_val),
+          [lo] "r" (lo_val)
     );
 
     SREG = sreg;
