@@ -1,49 +1,52 @@
-# PixelNode CLI Tool (`pxtool`) Reference Manual
+# PixelNode CLI ツール (`pxtool`) リファレンスマニュアル
 
-`pxtool` is the official field diagnostic, network monitoring, remote configuration, and rig-checking command-line utility for the PixelNode lighting system.
+`pxtool` は、PixelNode 照明システムの現場診断、ネットワーク監視、設定生成、および単体リグ点検を行うためのコマンドラインツールです。
 
-It is designed for rapid troubleshooting on stage, headless terminal environments via SSH, and automated testing pipelines.
+照明卓がまだ接続されていない仕込み段階での単体点灯テストや、SSH 経由での状態確認、スクリプトによる自動検証などに利用できます。
+
+> [!NOTE]
+> **実機検証ステータス**:  
+> USB シリアル経由での Arduino Uno 接続（`-s /dev/ttyUSB0`）による単体点灯テストは実機検証済みです。Raspberry Pi のハードウェア SPI（`--spi /dev/spidev0.0`）による点灯は現在コード実装段階であり、実機での物理検証は今後実施予定です。
 
 ---
 
-## Command Overview
+## コマンド一覧
 
-```
+```bash
 pxtool <COMMAND>
 
 Commands:
-  status       Query status, FPS, live channel values, and health from running pixelnoded
-  monitor      Real-time lighting network traffic monitor (packet sniffer for Art-Net / sACN)
-  test         Run standalone rig-check self-test patterns (local SPI or via remote daemon)
-  config       View, validate, or modify node configuration
-  lock         Toggle live show lock (protect node against accidental edits during show)
-  send-artnet  Transmit test Art-Net DMX frame
-  send-sacn    Transmit test sACN DMX frame
-  help         Print this message or help for a specific subcommand
+  status       稼働中の pixelnoded デーモンからステータス・FPS・DMXチャンネル値を取得
+  monitor      Art-Net / sACN 照明ネットワークのパケット監視（スニファー）
+  test         単体点灯テスト（Arduino シリアル、Raspberry Pi SPI、またはデーモン経由）
+  config       設定ファイルの確認、検証、プリセット生成、対話型セットアップ
+  lock         Show Lock（誤操作防止ロック）の有効化・無効化
+  send-artnet  テスト用 Art-Net DMX パケットの送信
+  send-sacn    テスト用 sACN (E1.31) DMX パケットの送信
+  help         ヘルプ情報の表示
 ```
 
 ---
 
 ## 1. `pxtool status`
 
-Queries a running `pixelnoded` daemon and prints comprehensive real-time telemetry.
+稼働中の `pixelnoded` デーモンに問い合わせを行い、リアルタイムの稼働状況を表示します。
 
-### Options
-* `-n, --node <URL>`: PixelNode HTTP endpoint URL (Default: `http://127.0.0.1:8080`).
-* `--json`: Output raw machine-readable JSON instead of human-readable view.
+### オプション
+* `-n, --node <URL>`: デーモンの HTTP エンドポイント URL（デフォルト: `http://127.0.0.1:8080`）
+* `--json`: スクリプト処理向けの生 JSON 形式で出力
 
-### Examples
+### 実行例
 
-#### Human-readable terminal view:
 ```bash
-# Query local node
+# ローカルで動作中のノードを確認
 pxtool status
 
-# Query remote Raspberry Pi node over network
+# ネットワーク上の Raspberry Pi ノードを確認
 pxtool status --node http://192.168.1.50:8080
 ```
 
-**Example Output:**
+**出力例:**
 ```
 ========================================================================
  PIXELNODE STATUS: Stage-WS2811-Node1 (v0.1.0)
@@ -74,111 +77,104 @@ pxtool status --node http://192.168.1.50:8080
 ========================================================================
 ```
 
-#### JSON Output (for automation and monitoring scripts):
-```bash
-pxtool status --json | jq .fps_x10
-```
-
 ---
 
 ## 2. `pxtool monitor`
 
-Real-time network packet sniffer for lighting protocols. Listens on Art-Net (UDP 6454) and sACN (UDP 5568) and logs incoming packets with timestamp, source IP, universe, sequence number, and preview of channel values.
+照明ネットワーク上のパケット（Art-Net: UDP 6454 / sACN: UDP 5568）を受信し、送信元IP・ユニバース番号・シーケンス番号・チャンネル値をリアルタイムに監視します。
 
-### Options
-* `-i, --interface <IP>`: Local interface IP to bind (Default: `0.0.0.0`).
-* `-p, --protocol <artnet|sacn|all>`: Filter protocols (Default: `all`).
-* `-u, --universe <ID>`: Filter by specific universe ID (Default: show all).
-* `-c, --channels <COUNT>`: Number of channel values to preview per packet (Default: `8`).
-* `-d, --duration <SEC>`: Stop monitoring after N seconds (Default: `0` = run indefinitely).
+### オプション
+* `-i, --interface <IP>`: バインドするインターフェースのローカル IP（デフォルト: `0.0.0.0`）
+* `-p, --protocol <artnet|sacn|all>`: 対象プロトコル（デフォルト: `all`）
+* `-u, --universe <ID>`: 監視対象の特定ユニバース番号（省略時は全ユニバース）
+* `-c, --channels <COUNT>`: パケットごとにプレビュー表示するチャンネル数（デフォルト: `8`）
+* `-d, --duration <SEC>`: 指定秒数後に自動停止（デフォルト: `0` = 手動停止まで継続）
 
-### Examples
+### 実行例
 
 ```bash
-# Monitor all lighting traffic on all interfaces
+# すべての照明パケットを監視
 pxtool monitor
 
-# Isolate Art-Net traffic for Universe 1 only
+# Art-Net の Universe 1 のみを抽出して監視
 pxtool monitor --protocol artnet --universe 1
 
-# Capture 10 seconds of traffic and show 16 channel values
+# 10秒間だけ監視し、先頭16チャンネルの値を表示
 pxtool monitor --duration 10 --channels 16
-```
-
-**Example Output:**
-```
-========================================================================
- Lighting Network Monitor on interface '0.0.0.0' (Filter: artnet)
- Filtering Universe: 1
- Press Ctrl+C to stop
-========================================================================
-[  0.02s] ART-NET | Src: 192.168.1.100   | Univ: 1   | Seq: 12  | Chs(8): [255,255,  0,128,  0,  5,  0,  0]
-[  0.04s] ART-NET | Src: 192.168.1.100   | Univ: 1   | Seq: 13  | Chs(8): [255,255,  0,128,  0,  5,  0,  0]
-[  0.06s] ART-NET | Src: 192.168.1.100   | Univ: 1   | Seq: 14  | Chs(8): [255,255,  0,128,  0,  5,  0,  0]
 ```
 
 ---
 
 ## 3. `pxtool test`
 
-Standalone rig-check and hardware self-test pattern generator. Can run either **locally** directly on Raspberry Pi hardware SPI or **remotely** via the running `pixelnoded` daemon.
+照明卓やネットワークが存在しない状態でも、LED テープの配線や点灯、カラーオーダーを現場で直接テストできる点検機能です。
+Arduino Uno の USB シリアルポート（実機検証済み）、Raspberry Pi SPI（今後検証予定）、または稼働中デーモンの REST API 経由で実行できます。
 
-### Test Patterns
-* `rgbw`: Red -> Green -> Blue -> White cycling (1s interval) to verify color order and defective subpixels.
-* `walker`: Single bright white pixel walking sequentially down the strip (verifies pixel count, continuity, and direction).
-* `soak`: 100% full white continuous burn-in test to stress-test 24V power supplies, injection cables, and thermal limits.
-* `strobe`: 40Hz high-rate strobe (tests signal latch timing and integrity).
-* `color`: Solid user-specified RGB color (with `--color R,G,B`).
-* `off`: Terminate test mode and return to lighting console DMX control.
+### テストモード一覧
+* `rgbw`: 赤 $\rightarrow$ 緑 $\rightarrow$ 青 $\rightarrow$ 白 を1秒おきに巡回（カラーオーダー確認・不良素子チェック）
+* `walker`: 1つの白色ピクセルが端から端へ順次移動（ピクセル数・信号伝達方向の確認）
+* `soak`: 100% 全白点灯（電源の容量チェック・末端の電圧降下確認）
+* `strobe`: 40Hz の高頻度ストロボ（信号の伝送安定性チェック）
+* `color`: 任意の色（`--color R,G,B`）で固定点灯
+* `off`: テスト発光を停止し、照明卓からの DMX 制御へ復帰
 
-### Options
-* `-m, --mode <MODE>`: `rgbw` | `walker` | `soak` | `strobe` | `color` | `off`.
-* `-p, --pixels <N>`: Total number of pixels (Default: `300`).
-* `--color-order <ORDER>`: `rgb` | `rbg` | `grb` | `gbr` | `brg` | `bgr` (Default: `brg`).
-* `--preset <NAME>`: Preset hardware profile (`btf`, `generic`, `ws2812b`). Automatically configures pixel count and color order.
-* `--color <R,G,B>`: Custom color for `color` mode (e.g. `255,128,0`).
-* `--spi <PATH>`: Direct Linux SPI device path (e.g. `/dev/spidev0.0`). Omit for console preview.
-* `-s, --serial <PATH>`: Direct USB-Serial device path for Arduino Uno (e.g. `/dev/ttyUSB0` or `/dev/ttyACM0`).
-* `--baud <RATE>`: Serial baud rate for MCU test (Default: `115200`).
-* `-r, --remote`: Trigger test pattern on running `pixelnoded` daemon via REST API.
-* `-n, --node <URL>`: Remote daemon URL when `--remote` is used (Default: `http://127.0.0.1:8080`).
-* `-d, --duration <SEC>`: Run for N seconds, then exit (Default: `0` = infinite).
+### 自律パターン指定 (`--pattern`)
+モード指定の代わりに `--pattern <0..31>` を指定することで、デーモンと同等の点灯パターン（多重リップル、2色ウェーブ、一方向パルス等）を直接出力できます。
 
-### Examples
+### オプション
+* `-m, --mode <MODE>`: `rgbw` | `walker` | `soak` | `strobe` | `color` | `off`
+* `-p, --pixels <N>`: 制御ピクセル数（デフォルト: `300`）
+* `--color-order <ORDER>`: 色順列（`rgb` | `rbg` | `grb` | `gbr` | `brg` | `bgr`、デフォルト: `brg`）
+* `--preset <NAME>`: テーププリセット（`btf_fcob_576_24v_10m`, `nobrand_60led_12v_5m`, `ws2812b_60led_5v_5m`）
+* `--color <R,G,B>`: `color` モード時の RGB 値（例: `255,128,0`）
+* `--pattern <ID>`: 自律パターンスロット番号（`0`〜`31`、例: `24`=多重リップル, `25`=2色ウェーブ, `26`=一方向パルス, `27`=外側集約）
+* `--speed <VAL>`: パターンの再生速度（`0`〜`255`、デフォルト: `128` = 等倍正方向）
+* `--size <VAL>`: パターンの波長・幅（`0`〜`255`、デフォルト: `128` = 標準幅）
+* `-s, --serial <PATH>`: Arduino Uno 等の USB シリアルポート（例: `/dev/ttyUSB0`, `/dev/ttyACM0`）
+* `--baud <RATE>`: シリアルボーレート（デフォルト: `115200`）
+* `--spi <PATH>`: Linux SPI デバイスパス（例: `/dev/spidev0.0`）
+* `-r, --remote`: 稼働中の `pixelnoded` デーモンに対して REST API 経由でテストを指示
+* `-n, --node <URL>`: `--remote` 使用時のデーモン URL（デフォルト: `http://127.0.0.1:8080`）
+* `-d, --duration <SEC>`: 指定秒数後に自動終了（デフォルト: `0` = 永続実行）
 
-#### Local SPI Execution (Raspberry Pi SPI):
+### 実行例
+
+#### Arduino Uno 接続（実機検証済み）
 ```bash
-# Test BTF FCOB 24V strip on Raspberry Pi SPI
-pxtool test --preset btf --mode rgbw --spi /dev/spidev0.0
+# 1. BTF-LIGHTING FCOB 24V (160px, RGB) をプリセットで RGBW 点灯テスト
+pxtool test --serial /dev/ttyUSB0 --preset btf_fcob_576_24v_10m --mode rgbw
 
-# 30-second full power soak test to check PSU voltage sag
-pxtool test --preset btf --mode soak --spi /dev/spidev0.0 --duration 30
+# 2. ノーブランド 12V テープ (100px, RBG) でウォーカーテストを実行
+pxtool test --serial /dev/ttyUSB0 --preset nobrand_60led_12v_5m --mode walker
 
-# Address walker to count exact pixels
-pxtool test --mode walker --pixels 160 --spi /dev/spidev0.0
-```
+# 3. 60ピクセルのテープに対し、多重センターリップル (Pattern 24) を水色でテスト
+pxtool test --serial /dev/ttyUSB0 --pixels 60 --color-order grb --pattern 24 --color 0,200,255 --duration 5
 
-#### Local USB-Serial Execution (Arduino Uno on Linux PC / RasPi):
-```bash
-# Test BTF-LIGHTING FCOB 24V (160 px, RGB) directly on Arduino Uno
-pxtool test --serial /dev/ttyUSB0 --preset btf --mode rgbw
+# 4. 2色ウェーブ (Pattern 25) をマゼンタベースでテスト
+pxtool test --serial /dev/ttyUSB0 --pixels 60 --color-order grb --pattern 25 --color 255,0,128 --speed 140
 
-# Test Generic 12V 5m strip (100 px, RBG) on Arduino Uno
-pxtool test --serial /dev/ttyUSB0 --preset generic --mode walker
-
-# 10-second solid amber color test on Arduino
+# 5. アンバー色で 10 秒間点灯
 pxtool test --serial /dev/ttyUSB0 --mode color --color 255,120,20 --pixels 60 --duration 10
 ```
 
-#### Remote Execution (Over network, while daemon is running):
+#### Raspberry Pi SPI 接続（※実機未検証・今後テスト予定）
 ```bash
-# Trigger RGBW test pattern on remote stage node
+# BTF FCOB 24V を SPI 経由で RGBW 点灯テスト
+pxtool test --preset btf_fcob_576_24v_10m --mode rgbw --spi /dev/spidev0.0
+
+# 電源電圧降下チェックのための 30 秒間 100% 全白点灯
+pxtool test --preset btf_fcob_576_24v_10m --mode soak --spi /dev/spidev0.0 --duration 30
+```
+
+#### リモート経由（デーモン稼働中のネットワーク点検）
+```bash
+# 遠隔の Raspberry Pi ノードに RGBW テストを指示
 pxtool test --remote --mode rgbw --node http://192.168.1.50:8080
 
-# Send solid warm amber color
+# 固定アンバー色を指示
 pxtool test --remote --mode color --color 255,140,20 --node http://192.168.1.50:8080
 
-# Return node to live lighting console DMX control
+# テストモードを解除し、照明卓の DMX 制御へ戻す
 pxtool test --remote --mode off --node http://192.168.1.50:8080
 ```
 
@@ -186,87 +182,65 @@ pxtool test --remote --mode off --node http://192.168.1.50:8080
 
 ## 4. `pxtool config`
 
-View, validate, and dynamically update configuration.
+設定ファイルの閲覧、検証、プリセット適用、対話型セットアップを行います。
 
-### Subcommands
+### サブコマンド一覧
 
-### `pxtool config show`
-Displays active configuration from the running node or from a local TOML file.
-
+#### `pxtool config show`
+稼働中ノードまたはローカル TOML ファイルの設定内容を表示します。
 ```bash
-# Query active configuration from running node
+# 稼働中ノードの設定を表示
 pxtool config show
 
-# View remote node configuration
-pxtool config show --node http://192.168.1.50:8080
-
-# Print local configuration file
+# 指定した設定ファイルを表示
 pxtool config show --path /etc/pixelnode/config.toml
 ```
 
-### `pxtool config validate <PATH>`
-Validates configuration file syntax, structure, DMX universe/channel boundaries, and PSU settings prior to deployment.
-
+#### `pxtool config validate <PATH>`
+設定ファイルの構文エラー、DMX アドレス範囲の超過、電力設定の妥当性を事前チェックします。
 ```bash
 pxtool config validate /etc/pixelnode/config.toml
 ```
-**Output:**
-```
-Validating configuration file: '/etc/pixelnode/config.toml'...
-PASS: Configuration TOML syntax, structure, and parameters are valid. (Warnings: 0)
-```
 
-### `pxtool config preset list`
-Lists all built-in LED tape hardware profiles with their voltage, length, pixel count, physical LED count, color order, and recommended ABL current cap.
-
+#### `pxtool config preset list`
+内蔵されている LED テーププリセット（電圧、長さ、ピクセル数、色順、推奨電流上限）を一覧表示します。
 ```bash
 pxtool config preset list
 ```
 
-### `pxtool config preset show <ID>`
-Displays detailed electrical characteristics, calculation formulas, power injection guidance, and wiring precautions for a specific LED tape profile.
-
+#### `pxtool config preset show <ID>`
+特定プリセットの電気特性、計算根拠、電源注入の目安、配線注意事項を表示します。
 ```bash
 pxtool config preset show btf_fcob_576_24v_10m
 pxtool config preset show nobrand_60led_12v_5m
 ```
 
-### `pxtool config preset apply <ID>`
-Generates a complete, production-ready, fully commented `config.toml` file tailored to the selected tape profile and output driver.
-
+#### `pxtool config preset apply <ID>`
+選択したプリセットと出力方式に応じた、コメント付きの `config.toml` を生成します。
 ```bash
-# Generate config for BTF FCOB 24V (10m, 160 px, RGB) via Raspberry Pi SPI
-pxtool config preset apply btf_fcob_576_24v_10m --output /etc/pixelnode/config.toml
+# BTF FCOB 24V 向け設定を生成 (Arduino Uno 出力)
+pxtool config preset apply btf_fcob_576_24v_10m --driver serial_mcu --device /dev/ttyUSB0 --output /etc/pixelnode/config.toml
 
-# Generate config for Generic 12V (5m, 100 px, RBG) via Arduino Uno USB-Serial
-pxtool config preset apply nobrand_60led_12v_5m --driver serial_mcu --device /dev/ttyUSB0 --output /etc/pixelnode/config.toml
+# ノーブランド 12V 向け設定を生成 (Raspberry Pi SPI 出力)
+pxtool config preset apply nobrand_60led_12v_5m --driver spi_ws281x --device /dev/spidev0.0 --output /etc/pixelnode/config.toml
 ```
 
-### `pxtool config init`
-Launches the interactive setup wizard, prompting the technician to select from built-in profiles (or custom parameters), choose output driver hardware (Raspberry Pi SPI, Arduino Uno USB-Serial, or Virtual), and set DMX addressing.
-
+#### `pxtool config init`
+対話型のセットアップウィザードを起動します。テープ種類、出力ドライバ、DMX アドレスを質問形式で入力し、設定ファイルを出力します。
 ```bash
-# Interactive setup wizard
 pxtool config init
-
-# Scripted non-interactive initialization
-pxtool config init --preset btf_fcob_576_24v_10m --output /etc/pixelnode/config.toml --non-interactive
 ```
 
-### `pxtool config set`
-Modifies settings on a running node and saves them atomically to disk.
-
+#### `pxtool config set`
+稼働中のノードの設定を動的に変更し、ディスクへアトミックに保存します。
 ```bash
-# Change fixture DMX universe and start address
+# DMX ユニバースと開始アドレスを変更
 pxtool config set --universe 2 --address 1
 
-# Change personality to Pixel Direct RGB (Media server mode)
-pxtool config set --personality pixel_direct
-
-# Change color order to RBG and adjust pixel count
+# 色順を RBG に、ピクセル数を 100 に変更
 pxtool config set --color-order rbg --pixels 100
 
-# Set maximum PSU current limit to 7 Amperes (7000 mA)
+# 電源電流制限を 7A (7000mA) に設定
 pxtool config set --max-current-ma 7000
 ```
 
@@ -274,44 +248,37 @@ pxtool config set --max-current-ma 7000
 
 ## 5. `pxtool lock`
 
-Toggles the Live Show Lock. When Show Lock is active:
-* Configuration edits via REST API and Web UI are rejected (HTTP 403 Forbidden).
-* Standalone Rig Check overrides are disabled.
-* Live show DMX operation is protected from accidental button presses or misconfiguration.
+本番中の誤操作を防止する「Show Lock」の切り替えを行います。Show Lock が有効な間は、Web UI や REST API からの設定変更およびテスト発光の割り込みが拒絶（HTTP 403 Forbidden）されます。
 
 ```bash
-# Lock node prior to show start
+# 本番開始前にロックを有効化
 pxtool lock --enable
 
-# Unlock node for maintenance
+# メンテナンス時にロックを解除
 pxtool lock --disable
-
-# Query remote node and lock it
-pxtool lock --node http://192.168.1.50:8080 --enable
 ```
 
 ---
 
-## 6. `pxtool send-artnet` and `send-sacn`
+## 6. `pxtool send-artnet` / `send-sacn`
 
-Injects test frames into the network to test nodes, profiles, or network paths.
+ネットワーク疎通確認やアドレス確認のために、指定のチャンネル値を持つテストパケットを送信します。
 
 ```bash
-# Send Art-Net frame with Dimmer at 100%, Red at 100%
+# Art-Net で Dimmer 100%, Red 100% を Universe 1 宛てに送信
 pxtool send-artnet --ip 192.168.1.50 --universe 1 --channels "255,255,0,0,0,0,0"
 
-# Send sACN frame with Priority 150
+# sACN で 優先度 150 のパケットを送信
 pxtool send-sacn --ip 192.168.1.50 --universe 1 --priority 150 --channels "255,0,255,0,0,0,0"
 ```
 
 ---
 
-## Quick Troubleshooting Recipes
+## 現場トラブルシューティングの目安
 
-| Problem | Command to diagnose |
-| :--- | :--- |
-| **No output on strip** | `pxtool status` -> Check `Art-Net Packets Rx` and `Actual FPS`. |
-| **Colors are wrong (e.g. Red is Blue)** | `pxtool test --mode rgbw` -> Observe order: R->G->B. If Red displays as Blue, switch `--color-order brg`. |
-| **Lighting console not seeing node** | Check `pxtool monitor --protocol artnet` to see if console ArtPoll packets reach the node. |
-| **Node dropping output during bass drop** | `pxtool status` -> Check `Power Draw (ABL)` % to see if PSU limit was reached. |
-| **Accidental configuration changes feared** | `pxtool lock --enable`. |
+| 症状 | 確認コマンド | 疑われる原因と対処 |
+| :--- | :--- | :--- |
+| **LEDが全く点灯しない** | `pxtool status` | `Art-Net Packets Rx` が増えているか確認。増えていない場合は照明卓の送信先IP/ポートを確認。`pxtool test` で単体点灯するか確認。 |
+| **色が指定と異なる (赤が青になる等)** | `pxtool test --mode rgbw` | 赤 $\rightarrow$ 緑 $\rightarrow$ 青 の順序を目視確認。青が先に光るなら `--color-order brg` や `rbg` へ変更。 |
+| **激しく点滅・データ化けする** | `pxtool test --serial /dev/ttyUSB0 --mode color` | コントローラーとLED電源の **GND が共通接続されているか確認**。信号線にダンピング抵抗が入っているか確認。 |
+| **設定変更が反映されない** | `pxtool status` | `Show Lock: LOCKED` になっていないか確認。`pxtool lock --disable` で解除。 |

@@ -11,6 +11,18 @@ Language: [English](README.md) | [日本語 (Japanese)](README.ja.md)
 
 ---
 
+> [!IMPORTANT]
+> **Hardware Verification Status (As of October 2026)**
+> - **Arduino Uno (USB-Serial) + LED Strip (Pin D6)**: **Physically tested & verified**  
+>   CH340 / ATmega16U2 at 115200bps, DTR reset timing (2.2s), CRC-8 verification, bidirectional telemetry, and autonomous pattern playback have been physically verified on real hardware.
+> - **Raspberry Pi 3B (SPI0 MOSI / GPIO10)**: **Hardware testing not completed yet (untested / planned for future)**  
+>   Software driver implementation and unit simulations are complete, but physical signal validation and bench testing on real Raspberry Pi hardware remain pending.
+>
+> 🧭 **Unsure where to begin?**:  
+> Please consult the visual **[Setup Flowchart Guide (Japanese)](docs/setup_guide.md)** for step-by-step guidance on hardware selection, wiring, standalone bench tests, and daemon startup.
+
+---
+
 ## Overview
 
 **PixelNode** is an open-source software node written in Rust designed to receive **Art-Net 4** and **sACN (E1.31)** lighting data over standard IP networks and drive digital pixel LED strips (such as WS2811 / WS2812B) via hardware SPI on Linux systems, primarily targeting the Raspberry Pi 3B and standard x86_64 platforms.
@@ -37,7 +49,7 @@ PixelNode was designed with the following practical goals in mind:
 
 ## Technical Constraints & Hardware Considerations
 
-When deploying PixelNode in professional stage, live concert, or architectural lighting installations, please consider the following hardware and system factors:
+When deploying PixelNode in live events, stage setups, or experimental lighting installations, please consider the following hardware and system factors:
 
 ### 1. Timing Jitter & Software Timers
 * **General-Purpose OS vs. RTOS**: Linux does not guarantee microsecond-level determinism. Pixel transmission via the Linux `spidev` driver with DMA significantly reduces CPU overhead, but occasional timing jitter from kernel thread preemption or hardware interrupts may still occur.
@@ -220,15 +232,16 @@ Open `http://<node-ip>:8080/` in any modern web browser. The dashboard is comple
 
 ## Documentation
 
-Comprehensive architectural notes and references are provided in the [`docs/`](docs/) directory:
+Detailed technical specifications, wiring guides, and manuals are maintained in Japanese in the [`docs/`](docs/) directory:
 
-* **[Architecture & Design Specification](docs/Architecture&Design.md)**: In-depth technical specification, failure modes (FMEA), timing models, and audio FFT pipeline.
-* **[DMX Channel & Slot Specification](docs/dmx_channel_slot_specification.md)**: Full reference table for all 24 lighting patterns and 24 audio-reactive modes.
-* **[CLI Reference Manual (`pxtool`)](docs/cli_reference.md)**: Command-line syntax, packet sniffer, and diagnostic recipes.
-* **[Web Management Interface Reference](docs/web_interface.md)**: REST API documentation and dashboard capabilities.
-* **[Raspberry Pi 3B Setup Guide](deploy/raspi3b_setup.md)**: Hardware wiring, level shifter integration, and OS stabilization guide.
-* **[Arduino Uno USB Interface Guide](docs/arduino_uno_guide.md)**: Hardware wiring, USB serial framing, failsafe policies, and firmware upload for ATmega328P.
-* **[Real Hardware Testing Guide](docs/real_hardware_testing_guide.md)**: Diagnostic test suite for physical Arduino Uno, pixel sweeps, color order validation, and field inspection.
+* **[Setup Flowchart Guide (Japanese)](docs/setup_guide.md)**: Visual flowchart and step-by-step setup walkthrough (hardware choice, tape selection, wiring, rig tests).
+* **[Architecture & Design Specification (Japanese)](docs/Architecture&Design.md)**: In-depth technical specification, failure modes (FMEA), timing models, and audio FFT pipeline.
+* **[DMX Channel & Slot Specification (Japanese)](docs/dmx_channel_slot_specification.md)**: Full reference table for all 27 lighting patterns and 24 audio-reactive modes.
+* **[CLI Reference Manual (Japanese)](docs/cli_reference.md)**: Command-line syntax, packet sniffer, and diagnostic recipes for `pxtool`.
+* **[Web Management Interface Reference (Japanese)](docs/web_interface.md)**: REST API documentation and dashboard capabilities.
+* **[Raspberry Pi 3B Setup Guide (Japanese)](deploy/raspi3b_setup.md)**: Hardware wiring, level shifter integration, and OS stabilization guide.
+* **[Arduino Uno USB Interface Guide (Japanese)](docs/arduino_uno_guide.md)**: Hardware wiring, USB serial framing, failsafe policies, and firmware upload for ATmega328P.
+* **[Real Hardware Testing Guide (Japanese)](docs/real_hardware_testing_guide.md)**: Diagnostic test suite for physical Arduino Uno, pixel sweeps, color order validation, and field inspection.
 
 ---
 

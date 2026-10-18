@@ -1,16 +1,23 @@
 # PixelNode アーキテクチャ & 設計仕様書（Architecture & Design Specification）
 
 **PixelNode**: Art-Net 4 (ArtDmx, ArtPoll/Reply) / sACN (E1.31) で DMX を受信し、Pixel LED (WS2811 / WS2812B 等) を自律駆動する Linux / マイコン向け照明コントローラーシステム。  
-対象: Raspberry Pi 3B (aarch64) を主ターゲット、x86_64 Linux を副ターゲットとし、USBシリアル接続の Arduino Uno (ATmega328P) によるマイコン出力オフロードにも対応する。
+対象: Linux PC (x86_64) および Raspberry Pi 3B (aarch64) において、USBシリアル接続の Arduino Uno (ATmega328P) による出力オフロード、ならびに将来的な Raspberry Pi SPI 直接駆動に対応する。
 
-- **システム総称 / 製品名**: **PixelNode**
+- **システム総称**: **PixelNode**
 - **メインデーモン**: `pixelnoded` (Art-Net/sACN 受信・マージ・レンダリング・SPI/シリアル出力・Web UI)
 - **現場診断・設定CLI**: `pxtool` (リグチェック、監視、プリセット設定生成、ステータス取得)
-- **音声解析デーモン**: `audio-analyzerd` (Pi ローカル USB 音声解析)
+- **音声解析デーモン**: `audio-analyzerd` (ローカル USB 音声解析)
 - **ホストPC側音声送信機**: `audio-host-sender` (Host PC 音声キャプチャ・ブロードキャスト)
 
+> [!IMPORTANT]
+> **実機検証ステータス（2026年10月現在の事実）**  
+> - **Arduino Uno (USB-Serial: CH340 / ATmega16U2) + WS2811 LEDテープ（Pin D6）**: **実機接続テスト完了・点灯確認済み**  
+>   DTR 自動リセット遅延（2.2s）、115200bps 通信、CRC-8 検証、双方向テレメトリ、自律パターン点灯を実機で確認しています。
+> - **Raspberry Pi 3B (SPI0 MOSI / GPIO10)**: **実機テスト未完了（未検証・今後テスト予定）**  
+>   現時点ではコード上のドライバ実装およびシミュレーションテストのみであり、Raspberry Pi 実機での物理点灯確認はまだ行われていません。
+
 > [!NOTE]
-> 設計方針の基本は **「現場のショー中に不意に停止せず、万一の信号途絶や障害時にも破綻を最小限に抑えること」** です。
+> 設計方針の基本は **「現場のイベント中に不意に停止せず、万一の信号途絶や障害時にも破綻を最小限に抑えること」** です。
 > Linux カーネルのソフトウェアタイマーやネットワークの不確定要素を考慮し、フェイルセーフと現場での点検性を最優先に設計しています。
 
 ---
@@ -743,12 +750,12 @@ $$\Delta V = 2 \times I_{\text{total}} \times R_{\text{trace}}$$
 
 | Phase | 内容 | 完了条件 |
 |-------|------|---------|
-| 0 | HW 立ち上げ: SPI で WS2811 24V 1 ライン点灯、レベル変換 (74AHCT125)、波形実測 | 規格内信号出力 |
-| 1 (MVP) | Art-Net / sACN 受信、マージ、**Preset 7ch** ＋ **Pixel Direct**、SPI 出力、Hold フェイルセーフ、リグチェックテスト、TOML 設定 | 卓からの 7ch / 個別制御動作 |
-| 2 | 24種点灯パターン、24種音声同期、ArtPollReply 自動検出、ABL（電力制限）、Web UI（状態表示・設定・リグチェック） | 安定連続稼働 |
-| 3 | Arduino Uno (ATmega328P) USB-Serial ファームウェア (`serial_mcu`)、WDT保護、実機統合テスト自動化 | 実機 18項目テスト合格 |
-| 4 | LEDテープ・プリセットカタログ（BTF 24V / ノーブランド 12V RBG）、対話型初期設定ウィザード（`pxtool config init`） | 現場設定自動化 |
-| 5 | 音声解析デーモン（`audio-analyzerd` / `audio-host-sender`）、生演奏向けデュアル解像度 FFT | 音響同期演出実証 |
+| 0 | Raspberry Pi SPI 実機立ち上げ: レベル変換 (74AHCT125)、波形実測、物理点灯確認（※実機未検証・今後テスト予定） | 実機点灯および規格内信号出力 |
+| 1 (MVP) | Art-Net / sACN 受信、マージ、**Preset 7ch** ＋ **Pixel Direct**、ドライバ出力抽象化、Hold フェイルセーフ、リグチェックテスト、TOML 設定 | 卓からの 7ch / 個別制御動作 |
+| 2 | 自律点灯パターン（27種）、音声同期（24種）、ArtPollReply 検出、ABL（電力制限）、Web UI（状態表示・設定・リグチェック） | 安定稼働 |
+| 3 | Arduino Uno (ATmega328P) USB-Serial ファームウェア (`serial_mcu`)、双方向テレメトリ、実機統合テスト自動化 | 実機点灯およびテスト合格（検証完了） |
+| 4 | LEDテープ・プリセットカタログ（BTF 24V / ノーブランド 12V RBG）、対話型初期設定ウィザード（`pxtool config init`） | 現場設定の省力化 |
+| 5 | 音声解析デーモン（`audio-analyzerd` / `audio-host-sender`）、生演奏向けデュアル解像度 FFT | 音響同期演出の実装 |
 
 ---
 

@@ -1,237 +1,165 @@
-# PixelNode Arduino Uno (ATmega328P) USB-Serial Interface Guide
+# PixelNode Arduino Uno (ATmega328P) USBシリアル接続ガイド
 
-## 1. Overview & Architecture
+> [!IMPORTANT]
+> **実機テスト・検証ステータス（2026年10月現在）**
+> - **Arduino Uno (USB-Serial) + LEDテープ（Pin D6）**: **実機接続テスト完了・点灯確認済み**
+>   - CH340（互換機）および 純正 ATmega16U2 経由での 115200bps 通信、双方向テレメトリ、自律パターン点灯を実機で確認しています。
+> - **Raspberry Pi (SPI0 / GPIO10)**: **実機テスト未完了（未検証・今後テスト予定）**
 
-When running **PixelNode** in production environments where Raspberry Pi GPIO/SPI is unavailable or when offloading hardware driving to an isolated microcontroller, an **Arduino Uno (ATmega328P @ 16 MHz)** can be connected via USB port to a Linux PC or Raspberry Pi host.
+---
 
-The system is designed with a **dual-layer operational architecture** to ensure complete feature parity with Raspberry Pi rendering while maintaining fail-safe resilience against host freezes, USB disconnects, and cable noise.
+## 1. 概要と構成
+
+**PixelNode** を運用する際、Raspberry Pi の GPIO/SPI を直接使用できない環境や、LED信号の生成を専用マイコンに分離させたい場合に、**Arduino Uno (ATmega328P @ 16 MHz)** を Linux PC または Raspberry Pi の USB ポートに接続して使用できます。
+
+Arduino Uno を用いる主なメリット：
+1. **5V ロジック出力**: Arduino Uno のデジタルピンは 5V 出力のため、Raspberry Pi で必須となるレベルシフタ（3.3V $\rightarrow$ 5V 変換）が不要となり、D6 ピンから直接 WS2811 / WS2812B のデータ線へ接続できます。
+2. **ハードウェアタイマー専用駆動**: 汎用 OS（Linux）の割り込みやスケジューラ遅延から LED 信号生成を物理的に切り離せます。
+3. **低コスト・入手性**: 現場での予備機の確保が容易です。
 
 ```
 +-------------------------------------------------------------------------------+
-|                       Host System (Linux PC / Raspberry Pi)                  |
+|                       ホストシステム (Linux PC / Raspberry Pi)               |
 |                                                                               |
-|  [Art-Net / sACN] ---> [DMX Receiver]                                         |
-|  [Audio Mic/In]   ---> [audio-analyzerd] (FFT / Beat Detection)               |
+|  [Art-Net / sACN] ---> [DMX 受信]                                             |
+|  [音声ライン入力] ---> [audio-analyzerd] (FFT / ビート検出)                   |
 |                               |                                               |
 |                               v                                               |
 |                    [RenderEngine (Rust)]                                      |
-|                    - 24 Autonomous Patterns (Ch 6)                            |
-|                    - 24 Audio Sync Patterns (Ch 7)                            |
-|                    - Master Dimmer & 1..25Hz Strobe                           |
-|                    - Gamma 2.2 Table & PSU Power Limiter (ABL)                |
+|                    - 28種類の自律照明パターン (Ch 6: Slot 0〜27)              |
+|                    - 24種類の音響同期パターン (Ch 7)                          |
+|                    - マスターディマー & 1〜25Hz ストロボ                      |
+|                    - ガンマ 2.2 補正 & 電源リミッター (ABL)                   |
 |                               |                                               |
 |                               v                                               |
 |                    [SerialMcuSink (Rust)]                                     |
-|                    - Framing: Magic 'PX', Sequence, Length, CRC-8             |
-|                    - Serial Device: /dev/ttyACM0 or /dev/ttyUSB0 (115200 bps) |
+|                    - フレーミング: Magic 'PX', Sequence, Length, CRC-8        |
+|                    - デバイス: /dev/ttyACM0 または /dev/ttyUSB0 (115200 bps)  |
 +-------------------------------------------------------------------------------+
-                                        |  USB Cable (CDC / UART)
+                                        |  USB ケーブル (CDC / UART)
                                         v
 +-------------------------------------------------------------------------------+
 |                       Arduino Uno (ATmega328P @ 16 MHz)                       |
 |                                                                               |
-|  [Hardware UART] ---> [PacketParser (State Machine + CRC-8)]                  |
+|  [ハードウェア UART] ---> [パケットパーサー (状態遷移マシン + CRC-8 検証)]    |
 |                               |                                               |
 |            +------------------+------------------+                            |
-|            | (Streaming Mode)                    | (DMX Command / Fallback)   |
+|            | (ストリーミング受信)                | (DMXパラメータ自律描画)    |
 |            v                                     v                            |
-|  [OP_STREAM_PIXELS]                     [Onboard Pattern Engine]              |
-|  Direct Strip Buffer                    - Same 24 Patterns (Ch 6)             |
-|                                         - Same 24 Audio Sync (Ch 7)           |
-|                                         - Fail-safe Ambient Generator         |
+|  [OP_STREAM_PIXELS]                     [内蔵パターンエンジン]                |
+|  受信バッファをそのままLEDへ出力        - 同一の自律パターン (Ch 6)           |
+|                                         - 同一の音響同期 (Ch 7)               |
+|                                         - フェイルセーフ保持 / 自動復旧       |
 |                                                  |                            |
 |            +-------------------------------------+                            |
 |            |                                                                  |
 |            v                                                                  |
-|  [AVR Cycle-Accurate Driver / FastLED] ---> Pin D6 ---> [WS2811 / WS2812B]    |
+|  [AVR アセンブラ ドライバ] ------------> Pin D6 ----> [WS2811 / WS2812B LED] |
 |                                                                               |
-|  [Safety Systems]:                                                            |
-|  - Hardware Watchdog Timer (2.0s WDT)                                         |
-|  - Software Link Timeout Watchdog (Hold / Fallback / Blackout)                |
-|  - Zero Dynamic Memory Allocation (100% Static Bounded Buffers)               |
+|  [保護機能]:                                                                  |
+|  - ハードウェアウォッチドッグタイマー (2.0s WDT)                               |
+|  - リンク途絶タイマー監視 (Hold / Fallback / Blackout)                        |
+|  - 動的メモリ確保ゼロ (2KB SRAM 制約内で静的バッファ運用)                     |
+|  - 双方向テレメトリ返送 (ホストへ受信フレーム数・CRCエラー数を 1Hz 返信)      |
 +-------------------------------------------------------------------------------+
 ```
 
 ---
 
-## 2. Operating Modes
+## 2. 動作モード
 
-### Mode A: Host-Rendered Streaming Mode (`OP_STREAM_PIXELS`)
-- **Default & Primary Mode**: The host `pixelnoded` daemon renders pixel data through its Rust `RenderEngine`.
-- **Full Mathematical Parity**: 100% byte-for-byte exact fidelity with Raspberry Pi rendering, including 64-bit floating-point math, Gamma 2.2 correction, and PSU Current Limiting (ABL).
-- **MCU Task**: The Arduino Uno simply unpacks the framed RGB payload into its output buffer, validates the Dallas/Maxim CRC-8 checksum, and transmits the bitstream to Pin D6.
+### モード 1: ホスト側レンダリング・ストリーミングモード (`OP_STREAM_PIXELS`)
+- **標準モード**: ホスト側（`pixelnoded` または `pxtool`）の Rust `RenderEngine` が全ピクセルの色を計算し、パックされた RGB データをシリアル送信します。
+- **Arduinoの役割**: 受信したフレームの CRC-8 を検証し、エラーがなければ Pin D6 から LED へパルス列を出力します。
 
-### Mode B: Direct DMX Parameter / Fallback Mode (`OP_DMX_CHANNELS`)
-- **Direct Parameter Control**: Host or lighting console transmits compact 10-byte DMX packets (`[Dimmer, R, G, B, Strobe, PatternCh6, AudioCh7, Speed, Size]`).
-- **Onboard Pattern Engine**: The Arduino Uno executes the exact same mathematical patterns locally:
-  - **All 24 Autonomous Patterns (DMX Ch 6)**: Static, Single Chase, Dual Meteor, Gravity Bounce, Newton's Cradle, Liquid Ripple, Plasma Flow, Sand Cascade, Sine Breath, Heartbeat, Campfire, Aurora, Electric Arc, Firefly, Neural Synapse, Jellyfish, Rainbow, Knight Rider, Curtain Wipe, Strobe Matrix, Diamond Sparkle, Sawtooth, Matrix Rain, and Moiré Grid.
-  - **All 24 Audio-Reactive Patterns (DMX Ch 7)**: Master Pulse, Kick Flash, Snare Crack, Hi-Hat Shimmer, Spectrum VU, Bass Shockwave, EQ Split, Tempo Strobe, Oscilloscope, and full spectrum modes.
-  - Same slot calculation (`slot = dmx / 8`), speed normalization, size scaling, and strobe gating.
+### モード 2: DMX パラメータ送信・マイコン自律描画モード (`OP_DMX_CHANNELS`)
+- ホストから 10 バイトの軽量な DMX パラメータ（Dimmer, R, G, B, Strobe, Pattern, Audio, Speed, Size）を送信します。
+- Arduino 内部のパターンエンジンが、時間 $t$ に基づいて自律的にアニメーションを 50 FPS でローカル描画します。
+- ホストとの通信頻度を抑えたい場合や、帯域を節約したい場合に適しています。
 
 ---
 
-## 3. Fail-safe & Safety Architecture
-
-In live stage and architectural lighting, unexpected glitches, accidental cable disconnects, or host reboots must not cause erratic strobing or uncommanded blackouts. The Arduino Uno firmware incorporates multi-layered safety mechanisms:
-
-| Safety Mechanism | Implementation | Production Behavior |
-| :--- | :--- | :--- |
-| **AVR Hardware Watchdog** | `wdt_enable(WDTO_2S)` | If the MCU firmware ever hangs or deadlocks, the hardware automatically reboots the ATmega328P within 2.0 seconds. |
-| **Link Loss Detection** | `(now - last_packet_time) > timeout_ms` (Default: 500 ms) | Detects USB disconnection or host crash within 500 ms and transitions to the configured fail-safe policy. |
-| **Fail-safe: HOLD** (`PX_FAILSAFE_HOLD`) | Static frame buffer refresh | **Default for live shows.** Freezes and continuously refreshes the last valid stage picture so the audience sees no interruption. |
-| **Fail-safe: AUTONOMOUS** (`PX_FAILSAFE_AUTONOMOUS`) | Onboard pattern engine | Activates an emergency ambient warm amber breath (`#FF7814`) so backstage and stage technicians are not left in complete darkness. |
-| **Fail-safe: BLACKOUT** (`PX_FAILSAFE_BLACKOUT`) | Zero buffer output | Smoothly clears the LED strip to 0. |
-| **CRC-8 Integrity Check** | Dallas/Maxim polynomial `0x31` | Corrupted bytes caused by ground loops or electromagnetic interference are dropped before reaching the LED strip. |
-| **Zero Dynamic Allocation** | `no_alloc` / no `malloc` / no `String` | Completely eliminates memory fragmentation crashes on ATmega328P's 2 KB SRAM ceiling. |
-
----
-
-## 4. Hardware Wiring & Electrical Specifications
+## 3. 配線方法と電気的注意事項
 
 > [!CAUTION]
-> **CRITICAL VOLTAGE SEPARATION**:  
-> Never connect 24V or 12V power supply positive to the Arduino Uno's 5V, 3.3V, VIN, or GPIO pins! The Arduino Uno operates from host USB 5V power. Only the **DC Negative / GND** is shared between the LED power supply and the Arduino.
+> **電圧の分離（最重要）**:  
+> 24V や 12V の外部電源（V+）を、Arduino Uno の 5V、3.3V、VIN、またはデジタルピンに絶対に接続しないでください。Arduino Uno が瞬時に破損します。  
+> Arduino と LED 電源の間で共有するのは **DC マイナス（GND）のみ** です。
 
-### Wiring Diagram for 24V (BTF-LIGHTING FCOB 10m) / 12V (Generic Strip 5m):
+### 結線図（24V FCOB または 12V テープの場合）:
 
 ```
-         +-----------------------------------------------+
-         | External LED Power Supply (24V or 12V DC)     |
-         | +V (24V / 12V)                       GND (DC-)|
-         +---+--------------------------------------+-+--+
-             |                                      | |
-  Power Feed | (Dual-end power injection)           | | (Common GND)
-             |                                      | |
-  +----------+--------------------+                 | |
-  |                               |                 | |
-  v                               v                 | |
-+----+----------------------------+----+            | |
-| +V | LED Strip (WS2811 24V / 12V)| +V |           | |
-| DI | Length: 10m (24V) / 5m (12V)| DI |           | |
-|GND |                             |GND |           | |
-+--+-+----------------------------+--+-+            | |
-   ^                                 ^              | |
-   |                                 +--------------+ |
-   |                                 (End Injection)  |
-   |                                                  |
-   +--------------------------------------------------+
-   | (Start Injection GND)
-   |
-   | Data Line (5V Logic)
-   |       330Ω - 470Ω Resistor
-   +-------[   ///   ]-------+
-                             |
-                     Pin D6  |
-            +----------------+---------+
-            | Arduino Uno (ATmega328P) |
-            |                          |
-            | GND ---------------------+ (Common Ground Wire)
-            | USB Port                 |
-            +------------+-------------+
-                         | USB Cable
-                         v
-            +--------------------------+
-            | Host (Linux PC / RasPi)  |
-            +--------------------------+
+[外部 LED 電源 (24V または 12V)]
+  +V (24V/12V) -----------------------------------> LEDテープの +V (赤線)
+  GND (0V)     ---+-------------------------------> LEDテープの GND (白/黒線)
+                  |
+                  | （※GND同士を必ず直結して共通化する）
+                  |
+[Arduino Uno]     |
+  GND -----------+
+  Pin D6 ------------------[ 47Ω〜100Ω 抵抗 ]-----> LEDテープの DIN (緑線)
+  USB端子 -----------------------------------------> PC / ラズパイの USBポート
 ```
 
-### Critical Wiring Rules for Field Deployment:
-1. **Common Ground**: Connect the Arduino `GND` pin directly to the `GND` (negative terminal) of the external 24V or 12V power supply with a low-resistance lead. Without a solid ground reference, high-frequency 800 kHz bitbang data will suffer from frame corruption and flickering.
-2. **Data Resistor**: Place a `330 Ω` to `470 Ω` resistor in series between Arduino Pin D6 and the LED strip's `DATA IN`. This dampens transmission line reflections and protects the first WS2811 IC.
-3. **Dual-End Power Injection**:
-   * **BTF FCOB 24V (10m)**: Connect 24V and GND to both ends (0m and 10m).
-   * **Generic 12V (5m)**: Connect 12V and GND to both ends (0m and 5m).
-4. **Data Pin**: The default data output pin is **D6** (`PORTD, Bit 6`). Can be customized in `firmware/arduino_uno/ws2812_driver.h` if required.
+> **直列抵抗の推奨**:  
+> Arduino の Pin D6 と LED テープのデータ入力（DIN）の間に、33Ω〜100Ω 程度の抵抗を入れると、信号の反射（オーバーシュート）を抑制し、長時間の安定性が向上します。
 
 ---
 
-## 5. Host Configuration (`config.toml`)
+## 4. ファームウェアの書き込み手順
 
-You can generate configuration files directly using pre-configured hardware profiles:
+### 必要なツール
+- `arduino-cli`（推奨）または Arduino IDE (2.x)
+- AVR ボードパッケージ: `arduino:avr`
+
+### arduino-cli による書き込み
+```bash
+# ボードパッケージのインストール（初回のみ）
+arduino-cli core install arduino:avr
+
+# コンパイル
+arduino-cli compile --fqbn arduino:avr:uno firmware/pixelnode_uno
+
+# 書き込み (/dev/ttyUSB0 の場合)
+arduino-cli upload -p /dev/ttyUSB0 --fqbn arduino:avr:uno firmware/pixelnode_uno
+```
+
+> **書き込み直後の自己診断点滅**:  
+> 書き込みまたは電源投入直後、Pin D6 に接続された LED の先頭 5 球が **赤 → 緑 → 青 → 橙（アンバー）** の順に各 100ms 点滅します。PC と通信する前でも、LEDテープの電源・GND・信号線の導通を視覚的に確認できます。
+
+---
+
+## 5. 実機点灯テスト
+
+照明卓やデーモンを立ち上げる前に、`pxtool test` コマンドで直接点灯を確認できます。
 
 ```bash
-# Generate config for BTF-LIGHTING FCOB 24V (10m, 160 px, RGB) via Arduino USB-Serial:
-pxtool config preset apply btf_fcob_576_24v_10m --driver serial_mcu --device /dev/ttyUSB0 -o /etc/pixelnode/config.toml
+# 1. 赤色で 3 秒間点灯（60ピクセル、GRB色順）
+./target/debug/pxtool test --serial /dev/ttyUSB0 --pixels 60 --color-order grb --mode color --color "255,0,0" --duration 3
 
-# Generate config for Generic 12V Strip (5m, 100 px, RBG) via Arduino USB-Serial:
-pxtool config preset apply nobrand_60led_12v_5m --driver serial_mcu --device /dev/ttyUSB0 -o /etc/pixelnode/config.toml
+# 2. 多重センターリップル（Slot 24）をシアン色で 5 秒間点灯
+./target/debug/pxtool test --serial /dev/ttyUSB0 --pixels 60 --color-order grb --pattern 24 --color "0,220,255" --duration 5
+
+# 3. 4つの拡張パターンを一括順次テスト
+./tests/test_new_patterns.sh /dev/ttyUSB0 60 grb 115200
 ```
 
-Example `config.toml` structure for Arduino Uno output:
-
-```toml
-[node]
-name = "PixelNode-Arduino-01"
-show_lock = false
-
-[[output]]
-id = "out-uno-01"
-driver = "serial_mcu"       # or "usb_serial"
-device = "/dev/ttyUSB0"     # /dev/ttyUSB0 (CH340) or /dev/ttyACM0 (official Uno)
-baud_rate = 115200          # 115200 standard baud
-chip = "ws2811"             # ws2811 | ws2812b
-color_order = "rgb"         # "rgb" for BTF FCOB, "rbg" for Generic 12V
-pixels = 160                # 160 px (BTF FCOB 10m) or 100 px (Generic 12V 5m)
-psu_max_current_ma = 7000   # Automatic Brightness Limiter (ABL) current cap
-
-[[fixture]]
-output = "out-uno-01"
-pixel_range = [0, 159]      # [0, pixels - 1]
-personality = "preset_7ch"
-universe = 1
-address = 1
+正常に通信できると、ターミナルに以下のようなマイコン側受信ステータスが表示されます：
+```
+Connected to Arduino Uno on '/dev/ttyUSB0' (baud: 115200)
+Synchronized MCU configuration: 60 pixels (order: grb)
+  [MCU Status] Rx: 1 frames, CRC err: 0, Pixels: 60, Failsafe: false
+  [MCU Status] Rx: 28 frames, CRC err: 0, Pixels: 60, Failsafe: false
+  [MCU Status] Rx: 80 frames, CRC err: 0, Pixels: 60, Failsafe: false
 ```
 
 ---
 
-## 6. Firmware Compilation & Upload
+## 6. トラブルシューティング
 
-The firmware has **zero external library dependencies** and compiles cleanly in the official Arduino IDE or PlatformIO.
-
-### Using Arduino IDE:
-1. Open `firmware/arduino_uno/pixelnode_uno.ino` in Arduino IDE.
-2. Select **Tools > Board > Arduino Uno**.
-3. Select **Tools > Port > /dev/ttyACM0** (Linux) or **COMx** (Windows).
-4. Click **Upload** (Ctrl+U).
-
-### Verification & Automated Testing:
-Run the strict conformance test suite locally using Cargo and native C++:
-
-```bash
-# 1. Direct hardware test via pxtool (runs directly on connected Arduino without starting daemon):
-pxtool test --serial /dev/ttyUSB0 --preset btf --mode rgbw
-pxtool test --serial /dev/ttyUSB0 --preset generic --mode walker
-
-# 2. Run cross-language and native C++ conformance tests:
-PATH="$HOME/.cargo/bin:$PATH" cargo test --test arduino_conformance_test
-
-# 3. Run exhaustive real hardware test matrix (pixel sweeps, color orders, DMX, strobe, ABL):
-./tests/test_real_hardware.sh --mode quick
-
-# 4. Run interactive visual inspection for field technicians:
-./tests/test_real_hardware.sh --mode interactive
-```
-
----
-
-## 7. Power-On Visual Confidence Check & Troubleshooting
-
-### Startup Self-Test (Power-On Confidence Sequence)
-Upon powering on or rebooting, the Arduino Uno firmware immediately performs a 400ms visual confidence check on Digital Pin **D6**:
-- **First 5 LEDs flash**: **Red** (100ms) $\rightarrow$ **Green** (100ms) $\rightarrow$ **Blue** (100ms) $\rightarrow$ **Warm Amber** (100ms) $\rightarrow$ **Off/Blackout**.
-- **What this verifies for field technicians**:
-  1. Arduino firmware is running and not hung.
-  2. Pin D6 signal output and data line continuity to the strip are functional.
-  3. External 12V/24V power supply and Common Ground (GND) are properly connected.
-  4. Red, Green, and Blue channels can be visually confirmed.
-
-### Troubleshooting Checklist:
-1. **LEDs do not illuminate during the 400ms startup sequence**:
-   - Verify external 12V/24V power supply is on and providing voltage at the strip injection points.
-   - Verify the Common GND wire between Arduino Uno GND and power supply DC negative is securely connected.
-   - Verify the data wire is connected to Arduino Pin **D6** and to strip **DATA IN (DI)**, not DATA OUT (DO).
-2. **First few LEDs light up during startup, but no response from host commands**:
-   - When the host opens the USB-Serial port (`/dev/ttyUSB0`), the Arduino Uno resets via DTR and takes **1.8 seconds** for the Optiboot bootloader to finish before user code runs. `pxtool` and `pixelnoded` automatically include this startup delay.
-   - Run `pxtool test --serial /dev/ttyUSB0 --preset btf --mode rgbw` to verify host-to-MCU streaming.
-3. **Flashing with Adafruit_NeoPixel or FastLED**:
-   - The firmware automatically detects and uses `<Adafruit_NeoPixel.h>` if available in the Arduino environment. If not installed, it falls back to a cycle-accurate 16MHz AVR unrolled assembly driver with zero external dependencies.
+| 現象 | 主な原因 | 対処方法 |
+|---|---|---|
+| **LEDが一切点灯しない** | 電源未投入、GND未共通化、DTRリセット待ち不足 | ① LED電源が入っているか確認。<br>② ArduinoのGNDとLED電源のGNDが直結されているか確認。<br>③ 起動直後に先頭5球が点滅するか確認。点滅もしない場合は配線（D6ピン）を確認。 |
+| **色が指定と違う（赤と緑が逆など）** | テープの色順（カラーオーダー）不一致 | 12Vテープは `rbg`、汎用WS2812Bは `grb`、24V FCOBは `rgb` を指定してください。 |
+| **激しくチラつく・勝手に白く光る** | GND浮き、信号線ノイズ、長すぎる信号線 | ① コントローラーとLED電源のGND共通接続を再確認。<br>② D6ピン直後に 47Ω 抵抗を入れる。<br>③ ArduinoからLEDテープまでのデータ線を短く（1m以内推奨）する。 |
+| **起動直後の最初のパケットが届かない** | ArduinoのDTRオートリセット待ち（2.2s） | Arduino Uno はポートを開いた直後に自動リセットがかかり、起動完了まで約 2.2 秒かかります。スクリプト等で開く際は、接続直後に 2.2 秒以上の待機時間を設けてください。 |

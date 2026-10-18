@@ -1,67 +1,73 @@
-# PixelNode Web Management Interface & REST API
+# PixelNode Web 管理ダッシュボード & REST API 仕様書
 
-PixelNode includes an embedded, zero-CDN, responsive dark-mode Web Dashboard and REST API built directly into the daemon (`pixelnoded`).
+`pixelnoded` デーモンには、外部 CDN やインターネット接続を必要としない、軽量な Web 管理ダッシュボードと REST API が組み込まれています。
 
-It enables lighting designers, technicians, and operators to monitor node status, trigger rig tests, and adjust configurations from any smartphone, tablet, or laptop on the stage network without needing an SSH client or terminal access.
+現場の照明 LAN に接続されたスマートフォン、タブレット、PC のブラウザから、ノードの稼働状態の確認、単体点灯テスト、設定の調整が可能です。
+
+> [!NOTE]
+> **実機検証ステータス**:  
+> Web UI / REST API の通信機能、設定変更、および Arduino Uno (USB-Serial) を経由した点灯テスト・制御は実機検証済みです。Raspberry Pi ハードウェア SPI からの直接出力検証は今後実施予定です。
 
 ---
 
-## 1. Accessing the Web Dashboard
+## 1. Web ダッシュボードへのアクセス
 
-Once `pixelnoded` is running on a Raspberry Pi or Linux machine:
+`pixelnoded` が起動しているマシンに対し、同一ネットワーク内のブラウザからアクセスします：
 
 ```
-http://<node-ip-address>:8080/
+http://<ノードのIPアドレス>:8080/
 ```
 
-Example: `http://192.168.1.50:8080/`
+例: `http://192.168.1.50:8080/`（ローカル環境なら `http://127.0.0.1:8080/`）
 
-> **Note**: The web interface is self-contained. It requires **no internet access**, no external fonts, and no CDN dependencies. It functions in completely offline production networks.
-
----
-
-## 2. Dashboard Features
-
-### 1. Telemetry & Monitor View
-* **Render Performance**: Displays real-time rendering frame rate (50.0 FPS target) and total rendered frame counter.
-* **Network DMX Traffic**: Displays received packet counts for Art-Net and sACN (E1.31), with error status.
-* **Automatic Brightness Limiter (ABL)**: Live calculation of current draw in Amperes and percentage of power supply cap.
-* **Live Channel Value Preview**: Visual progress bars and numeric values for DMX channels (Master Dimmer/Strobe, RGBW, Preset Pattern, Audio Sync / Audio Mode).
-* **Audio Reactive Sync Status**: Live BPM counter, RMS energy meter, and real-time blinking trigger indicators for Kick, Snare, and Hi-Hat.
-* **Universe Subscriptions**: Status table showing active subscribed universes, protocol source (ArtNet / sACN), and stream age in milliseconds.
-
-### 2. Rig Check / Self-Test View
-Allows stage technicians to test LED strips directly from their phone/tablet without the lighting console transmitting:
-* **RGBW Cycle**: Cycles Red, Green, Blue, White to verify color order and LED health.
-* **Address Walker**: Walks a single white pixel across the strip to count LEDs and verify line continuity.
-* **Power Soak 100%**: Sets all LEDs to 100% white to test 24V power supply and voltage sag across the line.
-* **High-Rate Strobe**: 40Hz test strobe to verify SPI signal timing.
-* **Custom Color Picker**: Interactive color wheel & palette (Warm White, Amber, Cyan, Magenta, etc.).
-* **STOP / Return to DMX**: Restores lighting desk control.
-
-### 3. Configuration Management View
-* Edit Node Name, Bind IP, Art-Net/sACN toggle.
-* Configure Personality Mode (`preset_7ch`, `standard`, `pixel_direct`).
-* Configure Color Order (`BRG`, `RGB`, `GRB`, `RBG`, `BGR`, `GBR`).
-* Adjust Start Universe, Start Channel, and total Pixel Count.
-* Configure PSU Max Current Limit (mA).
-* Configure Failsafe Policy (`hold`, `hold_then_fade`, `blackout`).
-* **Save & Apply Changes**: Atomically writes updated configuration back to disk (`config.toml`) and applies it dynamically to the live render loop.
-
-### 4. Show Lock Protection
-* Top-right lock button (`🔒 Locked` / `🔓 Unlocked`).
-* When Show Lock is active, all configuration edits and manual rig-check test pattern overrides are locked out with clear warnings to prevent accidental disruptions during live concerts.
+* **完全オフライン対応**: 外部の Google Fonts や CDN スクリプト等は一切参照せず、すべてバイナリ内に内蔵された静的リソースから配信されます。インターネット回線のない現場 LAN でも問題なく動作します。
 
 ---
 
-## 3. REST API Reference
+## 2. ダッシュボードの主な機能
 
-All REST endpoints support Cross-Origin Resource Sharing (CORS) and standard JSON payloads.
+### 1. ステータス・監視ビュー
+* **レンダリング性能**: 目標フレームレート（50.0 FPS）と現在の実測 FPS、積算レンダリングフレーム数を表示。
+* **ネットワーク DMX 受信**: Art-Net および sACN (E1.31) の受信パケット数、最終受信からの経過時間（Age）。
+* **電力監視（ABL: Automatic Brightness Limiter）**: 現在の推定総消費電流（A）と、設定された電源上限値に対する利用比率（%）。
+* **リアルタイム・チャンネルインジケーター**: 受信中の DMX チャンネル（調光、RGBW、パターンスロット、音声同期）の値をプログレスバーと数値で可視化。
+* **音響同期ステータス**: 推定 BPM、RMS 音声エネルギー、およびキック／スネア／ハイハットのトリガー状態のリアルタイム点滅表示。
+
+### 2. リグチェック・点検発光ビュー
+照明卓がまだ稼働していない状況でも、ブラウザから直接テストパターンを発光させて結線・電源を点検できます：
+* **RGBW 巡回**: 赤 $\rightarrow$ 緑 $\rightarrow$ 青 $\rightarrow$ 白 の順次点灯で色順と LED 素子の健全性を確認。
+* **アドレスウォーカー**: 1 つの白色ピクセルが端から端へ順次移動し、ピクセル数と信号方向を確認。
+* **100% 全白点灯 (Power Soak)**: 全ピクセルを最大輝度で点灯させ、電源の容量不足や末端の電圧降下（赤変）を確認。
+* **高頻度ストロボ**: 40Hz の高速点滅により、信号のクロック安定性を確認。
+* **カラーパレット / カラーピッカー**: 任意の色を指定して常時点灯。
+* **停止 / DMX 制御へ復帰**: テスト発光を終了し、照明卓からの制御へ戻します。
+
+### 3. 設定管理ビュー
+* ノード名、バインド IP、Art-Net / sACN 有効無効の切り替え。
+* パーソナリティ（`preset_7ch`, `standard`, `pixel_direct`）の選択。
+* カラーオーダー（`RGB`, `RBG`, `GRB`, `BRG`, `BGR`, `GBR`）の選択。
+* 開始ユニバース、開始チャンネル、制御ピクセル数の変更。
+* 電源容量上限（mA）、フェイルセーフ動作（`hold`, `hold_then_fade`, `blackout`）の設定。
+* **設定の保存と即時適用**: 変更内容はディスク上の設定ファイル（TOML）へアトミックに書き込まれ、デーモンの描画ループにも即座に反映されます。
+
+### 4. Show Lock（誤操作防止ロック）
+* 画面右上のロックボタン（`🔒 Locked` / `🔓 Unlocked`）。
+* Show Lock が有効な間は、Web UI や REST API からの設定変更およびテスト発光の割り込みが拒否され、本番中の誤タップによる事故を防止します。
+
+---
+
+## 3. REST API 仕様
+
+外部の管理スクリプトや監視ツールから利用可能な REST エンドポイントです。CORS に対応し、JSON 形式でデータをやり取りします。
 
 ### `GET /api/status`
-Returns live telemetry snapshot.
+ノードのリアルタイム稼働状況を JSON で取得します。
 
-**Example Response:**
+```bash
+curl http://192.168.1.50:8080/api/status
+```
+
+**レスポンス例:**
 ```json
 {
   "node_name": "Stage-WS2811-Node1",
@@ -99,7 +105,7 @@ Returns live telemetry snapshot.
 ---
 
 ### `GET /api/config`
-Returns active configuration structure as JSON.
+現在の設定内容（ノード設定、ネットワーク、フェイルセーフ、出力ドライバ、フィクスチャ割り当て）を JSON で取得します。
 
 ```bash
 curl http://192.168.1.50:8080/api/config
@@ -108,12 +114,12 @@ curl http://192.168.1.50:8080/api/config
 ---
 
 ### `POST /api/config`
-Updates node configuration, saves to TOML atomically on disk, and applies changes to the live rendering loop.
+ノード設定を更新し、ディスク（TOML）へ保存して稼働中のループへ反映します。
 
-> **Status Codes:**
-> * `200 OK`: Configuration saved and applied.
-> * `400 Bad Request`: Invalid JSON payload.
-> * `403 Forbidden`: Node is Show Locked.
+* **HTTP ステータスコード:**
+  * `200 OK`: 設定が正常に更新・保存された
+  * `400 Bad Request`: JSON 構造が不正
+  * `403 Forbidden`: Show Lock が有効化されている
 
 ```bash
 curl -X POST http://192.168.1.50:8080/api/config \
@@ -124,20 +130,20 @@ curl -X POST http://192.168.1.50:8080/api/config \
     "failsafe": { "on_data_loss": "hold", "hold_timeout_sec": 10, "fade_duration_sec": 3 },
     "output": [{
       "id": "out1",
-      "driver": "spi_ws281x",
-      "device": "/dev/spidev0.0",
+      "driver": "serial_mcu",
+      "device": "/dev/ttyUSB0",
       "chip": "ws2811",
-      "color_order": "brg",
-      "pixels": 576,
-      "psu_max_current_ma": 20000
+      "color_order": "rgb",
+      "pixels": 160,
+      "psu_max_current_ma": 7000
     }],
     "fixture": [{
       "output": "out1",
-      "pixel_range": [0, 575],
+      "pixel_range": [0, 159],
       "personality": "preset_7ch",
       "white_mode": "rgb_blend",
       "universe_span": "per_170px",
-      "universe": 2,
+      "universe": 1,
       "address": 1
     }]
   }'
@@ -146,20 +152,20 @@ curl -X POST http://192.168.1.50:8080/api/config \
 ---
 
 ### `POST /api/test`
-Overrides output with a standalone rig-check pattern or solid color.
+点検用のテストパターン発光を指示します。
 
 ```bash
-# Start RGBW test cycle
+# RGBW 巡回テスト開始
 curl -X POST http://192.168.1.50:8080/api/test \
   -H "Content-Type: application/json" \
   -d '{"mode": "rgbw"}'
 
-# Set solid warm amber color
+# 任意の色（例: アンバー）で常時点灯
 curl -X POST http://192.168.1.50:8080/api/test \
   -H "Content-Type: application/json" \
   -d '{"mode": "color", "color": [255, 140, 20]}'
 
-# Return to live console DMX control
+# テストを解除し、照明卓の制御へ復帰
 curl -X POST http://192.168.1.50:8080/api/test \
   -H "Content-Type: application/json" \
   -d '{"mode": "off"}'
@@ -168,15 +174,15 @@ curl -X POST http://192.168.1.50:8080/api/test \
 ---
 
 ### `POST /api/lock`
-Toggles Show Lock.
+Show Lock の状態を切り替えます。
 
 ```bash
-# Lock node
+# 本番ロックの有効化
 curl -X POST http://192.168.1.50:8080/api/lock \
   -H "Content-Type: application/json" \
   -d '{"show_lock": true}'
 
-# Unlock node
+# 本番ロックの解除
 curl -X POST http://192.168.1.50:8080/api/lock \
   -H "Content-Type: application/json" \
   -d '{"show_lock": false}'
