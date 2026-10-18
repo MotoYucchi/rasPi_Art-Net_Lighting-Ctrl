@@ -105,6 +105,8 @@ pub struct SerialMcuSink {
     seq: u8,
     frame_buf: Vec<u8>,
     device_path: Option<String>,
+    baud_rate: u32,
+    last_frame_sent: Option<std::time::Instant>,
 }
 
 impl SerialMcuSink {
@@ -115,12 +117,19 @@ impl SerialMcuSink {
             seq: 0,
             frame_buf: Vec::with_capacity(HEADER_SIZE + MAX_PAYLOAD_LEN + FOOTER_SIZE),
             device_path: None,
+            baud_rate: 115_200,
+            last_frame_sent: None,
         }
     }
 
     /// Get the configured device path if opened from hardware serial port
     pub fn device_path(&self) -> Option<&str> {
         self.device_path.as_deref()
+    }
+
+    /// Get configured baud rate
+    pub fn baud_rate(&self) -> u32 {
+        self.baud_rate
     }
 
     /// Open serial device (e.g. `/dev/ttyACM0` or `/dev/ttyUSB0`)
@@ -166,12 +175,27 @@ impl SerialMcuSink {
             }
         }
 
-        Ok(Self {
+        // Wait for Arduino Optiboot bootloader auto-reset delay (1.8s) so MCU enters user sketch
+        std::thread::sleep(std::time::Duration::from_millis(1800));
+
+        // Flush any reset garbage or bootloader echoes from kernel buffers
+        unsafe {
+            libc::tcflush(fd, libc::TCIOFLUSH);
+        }
+
+        let mut sink = Self {
             writer: Box::new(file),
             seq: 0,
             frame_buf: Vec::with_capacity(HEADER_SIZE + MAX_PAYLOAD_LEN + FOOTER_SIZE),
             device_path: Some(device_path.to_string()),
-        })
+            baud_rate,
+            last_frame_sent: None,
+        };
+
+        // Send a heartbeat ping to initialize link
+        let _ = sink.send_heartbeat();
+
+        Ok(sink)
     }
 
     /// Send DMX channel parameters directly to Arduino Uno
@@ -235,7 +259,25 @@ impl PixelSink for SerialMcuSink {
         if packed_rgb_bytes.len() > MAX_PAYLOAD_LEN {
             return Err(OutputError::BufferTooSmall);
         }
-        self.send_packet(OP_STREAM_PIXELS, packed_rgb_bytes)
+
+        // Throttle frame rate so baud rate bandwidth is never exceeded:
+        // Frame bytes = 6 (header) + len + 1 (footer).
+        // Target <= 85% of theoretical bandwidth to eliminate UART RX FIFO overruns on MCU.
+        let frame_bytes = HEADER_SIZE + packed_rgb_bytes.len() + FOOTER_SIZE;
+        let safe_bytes_per_sec = (self.baud_rate as f64 / 10.0) * 0.85;
+        let min_frame_sec = (frame_bytes as f64 / safe_bytes_per_sec).max(0.010);
+        let min_interval = std::time::Duration::from_secs_f64(min_frame_sec);
+
+        if let Some(last) = self.last_frame_sent {
+            let elapsed = last.elapsed();
+            if elapsed < min_interval {
+                std::thread::sleep(min_interval - elapsed);
+            }
+        }
+
+        self.send_packet(OP_STREAM_PIXELS, packed_rgb_bytes)?;
+        self.last_frame_sent = Some(std::time::Instant::now());
+        Ok(())
     }
 }
 

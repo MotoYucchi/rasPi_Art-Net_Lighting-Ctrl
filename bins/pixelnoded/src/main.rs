@@ -333,8 +333,21 @@ address = 1
         },
         #[cfg(target_os = "linux")]
         "serial_mcu" | "usb_serial" => match output::serial_mcu::SerialMcuSink::open(&first_out.device, first_out.baud_rate) {
-            Ok(sink) => {
+            Ok(mut sink) => {
                 info!("Initialized USB-Serial MCU output on '{}' (baud: {})", first_out.device, first_out.baud_rate);
+                // Synchronize hardware configuration (pixel count, failsafe policy, timeout)
+                let failsafe_mode = match config.failsafe.on_data_loss.as_str() {
+                    "blackout" => 0,
+                    "hold" => 1,
+                    "autonomous" => 2,
+                    _ => 1,
+                };
+                let timeout_ms = (config.failsafe.hold_timeout_sec as u16).saturating_mul(1000).max(500);
+                if let Err(e) = sink.send_config(first_out.pixels as u16, failsafe_mode, timeout_ms) {
+                    warn!("Failed to send initial config packet to MCU on '{}': {}", first_out.device, e);
+                } else {
+                    info!("Configured MCU: {} pixels, failsafe mode {}", first_out.pixels, failsafe_mode);
+                }
                 Box::new(sink)
             }
             Err(e) => {

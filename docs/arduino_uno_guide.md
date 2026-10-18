@@ -198,14 +198,40 @@ The firmware has **zero external library dependencies** and compiles cleanly in 
 Run the strict conformance test suite locally using Cargo and native C++:
 
 ```bash
-# Run cross-language and native C++ conformance tests:
+# 1. Direct hardware test via pxtool (runs directly on connected Arduino without starting daemon):
+pxtool test --serial /dev/ttyUSB0 --preset btf --mode rgbw
+pxtool test --serial /dev/ttyUSB0 --preset generic --mode walker
+
+# 2. Run cross-language and native C++ conformance tests:
 PATH="$HOME/.cargo/bin:$PATH" cargo test --test arduino_conformance_test
 
-# Run exhaustive real hardware test matrix (pixel sweeps, color orders, DMX, strobe, ABL):
-./tests/test_real_hardware.sh
+# 3. Run exhaustive real hardware test matrix (pixel sweeps, color orders, DMX, strobe, ABL):
+./tests/test_real_hardware.sh --mode quick
 
-# Run interactive visual inspection for field technicians:
+# 4. Run interactive visual inspection for field technicians:
 ./tests/test_real_hardware.sh --mode interactive
 ```
 
-For complete test options, troubleshooting, and matrix details, see the **[Real Hardware Testing Guide](real_hardware_testing_guide.md)**.
+---
+
+## 7. Power-On Visual Confidence Check & Troubleshooting
+
+### Startup Self-Test (Power-On Confidence Sequence)
+Upon powering on or rebooting, the Arduino Uno firmware immediately performs a 400ms visual confidence check on Digital Pin **D6**:
+- **First 5 LEDs flash**: **Red** (100ms) $\rightarrow$ **Green** (100ms) $\rightarrow$ **Blue** (100ms) $\rightarrow$ **Warm Amber** (100ms) $\rightarrow$ **Off/Blackout**.
+- **What this verifies for field technicians**:
+  1. Arduino firmware is running and not hung.
+  2. Pin D6 signal output and data line continuity to the strip are functional.
+  3. External 12V/24V power supply and Common Ground (GND) are properly connected.
+  4. Red, Green, and Blue channels can be visually confirmed.
+
+### Troubleshooting Checklist:
+1. **LEDs do not illuminate during the 400ms startup sequence**:
+   - Verify external 12V/24V power supply is on and providing voltage at the strip injection points.
+   - Verify the Common GND wire between Arduino Uno GND and power supply DC negative is securely connected.
+   - Verify the data wire is connected to Arduino Pin **D6** and to strip **DATA IN (DI)**, not DATA OUT (DO).
+2. **First few LEDs light up during startup, but no response from host commands**:
+   - When the host opens the USB-Serial port (`/dev/ttyUSB0`), the Arduino Uno resets via DTR and takes **1.8 seconds** for the Optiboot bootloader to finish before user code runs. `pxtool` and `pixelnoded` automatically include this startup delay.
+   - Run `pxtool test --serial /dev/ttyUSB0 --preset btf --mode rgbw` to verify host-to-MCU streaming.
+3. **Flashing with Adafruit_NeoPixel or FastLED**:
+   - The firmware automatically detects and uses `<Adafruit_NeoPixel.h>` if available in the Arduino environment. If not installed, it falls back to a cycle-accurate 16MHz AVR unrolled assembly driver with zero external dependencies.

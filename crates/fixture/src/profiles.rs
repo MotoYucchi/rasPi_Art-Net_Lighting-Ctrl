@@ -47,6 +47,7 @@ pub static BUILTIN_PROFILES: &[TapeProfile] = &[
     TapeProfile {
         id: "btf_fcob_576_24v_10m",
         aliases: &[
+            "btf",
             "btf-fcob",
             "btf_fcob",
             "btf-fcob-24v",
@@ -72,6 +73,8 @@ pub static BUILTIN_PROFILES: &[TapeProfile] = &[
     TapeProfile {
         id: "nobrand_60led_12v_5m",
         aliases: &[
+            "generic",
+            "nobrand",
             "nobrand-12v",
             "generic-12v",
             "nobrand-12v-5m",
@@ -98,6 +101,7 @@ pub static BUILTIN_PROFILES: &[TapeProfile] = &[
     TapeProfile {
         id: "ws2812b_60led_5v_5m",
         aliases: &[
+            "ws2812b",
             "ws2812b-5v",
             "ws2812b_5v_5m",
             "ws2812b-5v-5m",

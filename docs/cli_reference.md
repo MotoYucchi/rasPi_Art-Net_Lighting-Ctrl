@@ -134,25 +134,40 @@ Standalone rig-check and hardware self-test pattern generator. Can run either **
 ### Options
 * `-m, --mode <MODE>`: `rgbw` | `walker` | `soak` | `strobe` | `color` | `off`.
 * `-p, --pixels <N>`: Total number of pixels (Default: `300`).
-* `--color-order <ORDER>`: `brg` | `rgb` | `grb` (Default: `brg`).
+* `--color-order <ORDER>`: `rgb` | `rbg` | `grb` | `gbr` | `brg` | `bgr` (Default: `brg`).
+* `--preset <NAME>`: Preset hardware profile (`btf`, `generic`, `ws2812b`). Automatically configures pixel count and color order.
 * `--color <R,G,B>`: Custom color for `color` mode (e.g. `255,128,0`).
 * `--spi <PATH>`: Direct Linux SPI device path (e.g. `/dev/spidev0.0`). Omit for console preview.
+* `-s, --serial <PATH>`: Direct USB-Serial device path for Arduino Uno (e.g. `/dev/ttyUSB0` or `/dev/ttyACM0`).
+* `--baud <RATE>`: Serial baud rate for MCU test (Default: `115200`).
 * `-r, --remote`: Trigger test pattern on running `pixelnoded` daemon via REST API.
 * `-n, --node <URL>`: Remote daemon URL when `--remote` is used (Default: `http://127.0.0.1:8080`).
 * `-d, --duration <SEC>`: Run for N seconds, then exit (Default: `0` = infinite).
 
 ### Examples
 
-#### Local SPI Execution (Direct hardware check):
+#### Local SPI Execution (Raspberry Pi SPI):
 ```bash
-# Test 576 pixels of WS2811 24V strip on Raspberry Pi SPI
-pxtool test --mode rgbw --pixels 576 --color-order brg --spi /dev/spidev0.0
+# Test BTF FCOB 24V strip on Raspberry Pi SPI
+pxtool test --preset btf --mode rgbw --spi /dev/spidev0.0
 
 # 30-second full power soak test to check PSU voltage sag
-pxtool test --mode soak --pixels 576 --spi /dev/spidev0.0 --duration 30
+pxtool test --preset btf --mode soak --spi /dev/spidev0.0 --duration 30
 
 # Address walker to count exact pixels
-pxtool test --mode walker --pixels 576 --spi /dev/spidev0.0
+pxtool test --mode walker --pixels 160 --spi /dev/spidev0.0
+```
+
+#### Local USB-Serial Execution (Arduino Uno on Linux PC / RasPi):
+```bash
+# Test BTF-LIGHTING FCOB 24V (160 px, RGB) directly on Arduino Uno
+pxtool test --serial /dev/ttyUSB0 --preset btf --mode rgbw
+
+# Test Generic 12V 5m strip (100 px, RBG) on Arduino Uno
+pxtool test --serial /dev/ttyUSB0 --preset generic --mode walker
+
+# 10-second solid amber color test on Arduino
+pxtool test --serial /dev/ttyUSB0 --mode color --color 255,120,20 --pixels 60 --duration 10
 ```
 
 #### Remote Execution (Over network, while daemon is running):

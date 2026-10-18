@@ -135,7 +135,15 @@ struct TestArgs {
     #[arg(long)]
     spi: Option<String>,
 
-    /// Trigger test pattern on running daemon via REST API instead of local SPI
+    /// USB-Serial device path for Arduino Uno / MCU test (e.g. '/dev/ttyUSB0', '/dev/ttyACM0')
+    #[arg(short = 's', long)]
+    serial: Option<String>,
+
+    /// Baud rate for USB-Serial MCU test (default: 115200)
+    #[arg(long, default_value_t = 115200)]
+    baud: u32,
+
+    /// Trigger test pattern on running daemon via REST API instead of local SPI/Serial
     #[arg(short, long)]
     remote: bool,
 
@@ -703,7 +711,19 @@ fn main() {
                     (args.pixels, args.color_order.clone())
                 }
             } else {
-                (args.pixels, args.color_order.clone())
+                let px = if args.serial.is_some() && args.pixels == 300 {
+                    60 // Safe default for Arduino Uno
+                } else {
+                    args.pixels
+                };
+                (px, args.color_order.clone())
+            };
+
+            let pixels = if args.serial.is_some() && pixels > 170 {
+                eprintln!("Warning: Arduino Uno (ATmega328P) supports up to 170 pixels. Clamping {} to 170 pixels.", pixels);
+                170
+            } else {
+                pixels
             };
 
             let pattern_mode = match args.mode.to_lowercase().as_str() {
@@ -721,6 +741,8 @@ fn main() {
             println!(" Rig Check: {:?} on {} pixels (ColorOrder: {:?})", pattern_mode, pixels, c_order);
             if let Some(ref path) = args.spi {
                 println!(" Output Target: SPI device '{}'", path);
+            } else if let Some(ref path) = args.serial {
+                println!(" Output Target: USB-Serial Arduino MCU '{}' ({} baud)", path, args.baud);
             } else {
                 println!(" Output Target: Virtual Console");
             }
@@ -733,6 +755,28 @@ fn main() {
                     Ok(sink) => Some(sink),
                     Err(e) => {
                         eprintln!("Failed to open SPI {}: {}", path, e);
+                        return;
+                    }
+                }
+            } else {
+                None
+            };
+
+            #[cfg(target_os = "linux")]
+            let mut serial_sink = if let Some(ref dev) = args.serial {
+                match output::serial_mcu::SerialMcuSink::open(dev, args.baud) {
+                    Ok(mut sink) => {
+                        println!(" Connected to Arduino Uno on '{}' (baud: {})", dev, args.baud);
+                        // Send hardware config to sync pixel count and hold timeout
+                        if let Err(e) = sink.send_config(pixels as u16, 1, 1000) {
+                            eprintln!(" Warning: failed to send config to MCU: {}", e);
+                        } else {
+                            println!(" Synchronized MCU configuration: {} pixels", pixels);
+                        }
+                        Some(sink)
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to open Serial device {}: {}", dev, e);
                         return;
                     }
                 }
@@ -768,7 +812,14 @@ fn main() {
                     }
                 }
 
-                if args.spi.is_none() && frame_count % 50 == 0 {
+                #[cfg(target_os = "linux")]
+                if let Some(ref mut sink) = serial_sink {
+                    if let Err(e) = sink.write_pixels(&byte_buffer) {
+                        eprintln!("Error writing to Serial MCU: {}", e);
+                    }
+                }
+
+                if args.spi.is_none() && args.serial.is_none() && frame_count % 50 == 0 {
                     let first = out_pixels[0];
                     let mid = out_pixels[pixels / 2];
                     println!(
@@ -781,7 +832,9 @@ fn main() {
                 }
 
                 frame_count += 1;
-                sleep(Duration::from_millis(20));
+                if serial_sink.is_none() {
+                    sleep(Duration::from_millis(20));
+                }
             }
         }
 
