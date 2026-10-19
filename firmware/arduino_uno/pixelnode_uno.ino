@@ -26,6 +26,18 @@
 
 #if defined(ARDUINO) && defined(__AVR__)
 #include <avr/wdt.h>
+#include <avr/io.h>
+
+// Capture hardware reset flags before C runtime clears MCUSR
+uint8_t mcusr_mirror __attribute__((section(".noinit")));
+void get_mcusr(void) __attribute__((naked)) __attribute__((section(".init3")));
+void get_mcusr(void) {
+    mcusr_mirror = MCUSR;
+    MCUSR = 0;
+    wdt_disable();
+}
+#else
+static uint8_t mcusr_mirror = 0;
 #endif
 
 // Default configuration
@@ -38,6 +50,10 @@ static PxPacketParser parser;
 static uint16_t num_pixels = DEFAULT_PIXEL_COUNT;
 static uint8_t failsafe_policy = PX_FAILSAFE_HOLD;
 static uint16_t link_timeout_ms = DEFAULT_TIMEOUT_MS;
+
+// Stream frame synchronization: decoupled from RX to eliminate cli() UART FIFO overruns
+static bool stream_frame_dirty = false;
+static uint16_t stream_frame_len = 0;
 
 // Unified single strip buffer (GRB / RGB bytes)
 static uint8_t strip_buffer[PX_MAX_PIXELS * 3];
@@ -155,7 +171,11 @@ static void handle_packet(const PxPacketParser* p) {
             for (uint16_t i = 0; i < copy_len; i++) {
                 strip_buffer[i] = p->payload[i];
             }
-            ws2812_show(strip_buffer, copy_len);
+            // Deactivate autonomous DMX to prevent dual-render collision
+            dmx_state.has_dmx_command = false;
+            // Mark new frame ready for display in loop() when UART is quiet
+            stream_frame_dirty = true;
+            stream_frame_len = copy_len;
             break;
         }
 
@@ -234,8 +254,17 @@ void setup() {
     // Initialize packet parser
     px_parser_init(&parser);
 
-    // Send ASCII readiness banner to host
-    Serial.println(F("PX_READY"));
+    // Send ASCII readiness banner to host with hardware reset reason
+    const char* reset_reason = "POWER_ON";
+    if (mcusr_mirror & (1 << 2)) {
+        reset_reason = "BROWNOUT (VCC < 4.3V - Power Supply Sag / Overcurrent)";
+    } else if (mcusr_mirror & (1 << 3)) {
+        reset_reason = "WATCHDOG_TIMEOUT";
+    } else if (mcusr_mirror & (1 << 1)) {
+        reset_reason = "EXTERNAL_PIN_RESET";
+    }
+    Serial.print(F("PX_READY: RESET_SRC="));
+    Serial.println(reset_reason);
 
     // -------------------------------------------------------------------------
     // Power-on Visual Confidence Check (400ms sequence):
@@ -296,6 +325,13 @@ void loop() {
 
     uint32_t now = millis();
     float t_sec = (float)now * 0.001f;
+
+    // 2. Render streamed pixel frame ONLY during UART quiet window
+    // (Serial.available() == 0 guarantees ws2812_show()'s cli() will not cause UART RX FIFO overruns)
+    if (stream_frame_dirty && (Serial.available() == 0)) {
+        stream_frame_dirty = false;
+        ws2812_show(strip_buffer, stream_frame_len);
+    }
 
     // 2. Link Timeout & Fail-safe Handling
     bool link_timed_out = (now - last_packet_time) > link_timeout_ms;

@@ -120,6 +120,8 @@ pub struct SerialMcuSink {
     device_path: Option<String>,
     baud_rate: u32,
     last_frame_sent: Option<std::time::Instant>,
+    dropped_frames: u64,
+    last_reconnect_attempt: Option<std::time::Instant>,
 }
 
 impl SerialMcuSink {
@@ -134,7 +136,14 @@ impl SerialMcuSink {
             device_path: None,
             baud_rate: 115_200,
             last_frame_sent: None,
+            dropped_frames: 0,
+            last_reconnect_attempt: None,
         }
+    }
+
+    /// Get total count of dropped frames due to bandwidth limit or buffer backpressure
+    pub fn dropped_frames(&self) -> u64 {
+        self.dropped_frames
     }
 
     /// Get the configured device path if opened from hardware serial port
@@ -258,6 +267,8 @@ impl SerialMcuSink {
             device_path: Some(device_path.to_string()),
             baud_rate,
             last_frame_sent: None,
+            dropped_frames: 0,
+            last_reconnect_attempt: None,
         };
 
         // Send a heartbeat ping to initialize link
@@ -323,15 +334,37 @@ impl SerialMcuSink {
         frame_packet(opcode, self.seq, payload, &mut self.frame_buf);
         self.seq = self.seq.wrapping_add(1);
 
-        self.writer
-            .write_all(&self.frame_buf)
-            .map_err(|e| OutputError::Io(format!("Serial write failed: {}", e)))?;
-        self.writer
-            .flush()
-            .map_err(|e| OutputError::Io(format!("Serial flush failed: {}", e)))?;
-
+        write_all_with_timeout(&mut *self.writer, &self.frame_buf, std::time::Duration::from_millis(500))?;
         Ok(())
     }
+}
+
+fn write_all_with_timeout(writer: &mut (dyn Write + Send), mut data: &[u8], timeout: std::time::Duration) -> Result<(), OutputError> {
+    let deadline = std::time::Instant::now() + timeout;
+    while !data.is_empty() {
+        match writer.write(data) {
+            Ok(0) => {
+                return Err(OutputError::Io("Serial write returned zero bytes".into()));
+            }
+            Ok(n) => {
+                data = &data[n..];
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => {
+                continue;
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                if std::time::Instant::now() >= deadline {
+                    return Err(OutputError::Io("Serial write timed out (buffer full)".into()));
+                }
+                std::thread::sleep(std::time::Duration::from_micros(500));
+            }
+            Err(e) => {
+                return Err(OutputError::Io(format!("Serial write failed: {}", e)));
+            }
+        }
+    }
+    let _ = writer.flush();
+    Ok(())
 }
 
 impl PixelSink for SerialMcuSink {
@@ -351,13 +384,62 @@ impl PixelSink for SerialMcuSink {
         if let Some(last) = self.last_frame_sent {
             let elapsed = last.elapsed();
             if elapsed < min_interval {
-                std::thread::sleep(min_interval - elapsed);
+                // Physical serial line is still busy transmitting the previous frame.
+                // In real-time lighting control, DROP intermediate frames rather than
+                // stalling the 50 FPS daemon loop or overflowing the kernel buffer.
+                // The next loop tick will transmit the newest, freshest frame.
+                self.dropped_frames = self.dropped_frames.wrapping_add(1);
+                return Ok(());
             }
         }
 
-        self.send_packet(OP_STREAM_PIXELS, packed_rgb_bytes)?;
-        self.last_frame_sent = Some(std::time::Instant::now());
-        Ok(())
+        frame_packet(OP_STREAM_PIXELS, self.seq, packed_rgb_bytes, &mut self.frame_buf);
+        self.seq = self.seq.wrapping_add(1);
+
+        // Non-blocking write attempt: if the kernel buffer is full, drop frame immediately
+        // instead of blocking for 500ms and failing with "Serial write timed out".
+        match self.writer.write(&self.frame_buf) {
+            Ok(n) if n == self.frame_buf.len() => {
+                let _ = self.writer.flush();
+                self.last_frame_sent = Some(std::time::Instant::now());
+                Ok(())
+            }
+            Ok(_) => {
+                // Partial write: drop frame to maintain clean packet framing
+                self.dropped_frames = self.dropped_frames.wrapping_add(1);
+                Ok(())
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                // OS buffer currently full: drop frame to maintain zero latency
+                self.dropped_frames = self.dropped_frames.wrapping_add(1);
+                Ok(())
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => {
+                self.dropped_frames = self.dropped_frames.wrapping_add(1);
+                Ok(())
+            }
+            Err(e) => {
+                // Physical I/O error (e.g. Broken pipe or device reset):
+                // If device path is configured, attempt auto-reconnect
+                #[cfg(target_os = "linux")]
+                if let Some(ref path) = self.device_path {
+                    let should_retry = self
+                        .last_reconnect_attempt
+                        .map(|t| t.elapsed() > std::time::Duration::from_secs(1))
+                        .unwrap_or(true);
+                    if should_retry {
+                        self.last_reconnect_attempt = Some(std::time::Instant::now());
+                        if let Ok(new_sink) = Self::open(path, self.baud_rate) {
+                            self.writer = new_sink.writer;
+                            self.reader = new_sink.reader;
+                            self.rx_buf.clear();
+                            return Ok(());
+                        }
+                    }
+                }
+                Err(OutputError::Io(format!("Serial write failed: {}", e)))
+            }
+        }
     }
 }
 

@@ -697,13 +697,21 @@ fn main() {
             if args.remote {
                 let url = format!("{}/api/test", args.node.trim_end_matches('/'));
                 let rgb = args.color.as_deref().and_then(parse_rgb);
+                let mode = if args.pattern.is_some() {
+                    "pattern".to_string()
+                } else {
+                    args.mode.clone()
+                };
                 let payload = serde_json::json!({
-                    "mode": args.mode,
-                    "color": rgb
+                    "mode": mode,
+                    "color": rgb,
+                    "pattern": args.pattern,
+                    "speed": args.speed,
+                    "size": args.size,
                 });
 
                 match ureq::post(&url).timeout(Duration::from_secs(3)).send_json(payload) {
-                    Ok(_) => println!("Successfully triggered remote test pattern '{}' on node '{}'", args.mode, args.node),
+                    Ok(_) => println!("Successfully triggered remote test pattern '{}' (pattern: {:?}) on node '{}'", mode, args.pattern, args.node),
                     Err(e) => eprintln!("Failed to trigger remote test pattern: {}", e),
                 }
                 return;
@@ -865,9 +873,7 @@ fn main() {
                 }
 
                 frame_count += 1;
-                if serial_sink.is_none() {
-                    sleep(Duration::from_millis(20));
-                }
+                sleep(Duration::from_millis(20));
             }
         }
 

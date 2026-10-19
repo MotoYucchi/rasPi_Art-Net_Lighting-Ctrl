@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ja">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -18,7 +18,7 @@
       --text-main: #f0f3f8;
       --text-muted: #8b98b2;
       --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -90,6 +90,7 @@
     .pill-green { background: rgba(0, 230, 118, 0.15); color: var(--accent-green); border: 1px solid rgba(0, 230, 118, 0.3); }
     .pill-orange { background: rgba(255, 145, 0, 0.15); color: var(--accent-orange); border: 1px solid rgba(255, 145, 0, 0.3); }
     .pill-red { background: rgba(255, 61, 0, 0.15); color: var(--accent-red); border: 1px solid rgba(255, 61, 0, 0.3); }
+    .pill-blue { background: rgba(0, 210, 255, 0.15); color: var(--accent-cyan); border: 1px solid rgba(0, 210, 255, 0.3); }
 
     .btn {
       cursor: pointer;
@@ -176,6 +177,7 @@
       border: 1px solid var(--border);
       border-radius: 10px;
       padding: 18px;
+      margin-bottom: 20px;
     }
     .card-title {
       font-size: 13px;
@@ -274,6 +276,7 @@
       grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
       gap: 12px;
       margin-top: 14px;
+      margin-bottom: 16px;
     }
     .btn-test {
       padding: 14px;
@@ -304,7 +307,7 @@
       display: flex;
       align-items: center;
       gap: 12px;
-      margin-top: 16px;
+      margin-top: 14px;
       flex-wrap: wrap;
     }
     .swatch {
@@ -351,6 +354,9 @@
       grid-template-columns: 1fr 1fr;
       gap: 16px;
     }
+    @media (max-width: 680px) {
+      .form-row { grid-template-columns: 1fr; }
+    }
 
     .alert {
       padding: 12px 16px;
@@ -371,6 +377,11 @@
       border: 1px solid var(--accent-green);
       color: var(--accent-green);
     }
+    .alert-info {
+      background: rgba(0, 210, 255, 0.15);
+      border: 1px solid var(--accent-cyan);
+      color: var(--accent-cyan);
+    }
 
     table {
       width: 100%;
@@ -390,6 +401,24 @@
       font-size: 11px;
     }
     td { font-family: var(--font-mono); }
+
+    .slider-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 6px;
+    }
+    .slider-row input[type="range"] {
+      flex: 1;
+      cursor: pointer;
+    }
+    .slider-val {
+      min-width: 48px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
     footer.app-footer {
       max-width: 1280px;
       margin: 40px auto 20px;
@@ -400,9 +429,9 @@
       align-items: center;
       color: var(--text-muted);
       font-size: 13px;
+      flex-wrap: wrap;
+      gap: 10px;
     }
-    footer.app-footer a { color: var(--text-muted); text-decoration: none; }
-    footer.app-footer a:hover { color: var(--accent); }
   </style>
 </head>
 <body>
@@ -426,8 +455,8 @@
 
   <nav>
     <div class="nav-tab active" onclick="switchTab('overview')">Telemetry & Monitor</div>
-    <div class="nav-tab" onclick="switchTab('rigcheck')">Rig Check / Self-Test</div>
-    <div class="nav-tab" onclick="switchTab('config')">Configuration</div>
+    <div class="nav-tab" onclick="switchTab('rigcheck')">Rig Check / 点検発光</div>
+    <div class="nav-tab" onclick="switchTab('config')">Configuration / 設定</div>
   </nav>
 
   <main>
@@ -497,40 +526,110 @@
     <!-- TAB 2: RIG CHECK -->
     <div id="tab-rigcheck" class="tab-pane">
       <div id="rigLockAlert" class="alert alert-warn" style="display:none;">
-        ⚠️ Show Lock is ACTIVE. Rig Check test pattern overrides are locked out during live show. Unlock node first.
+        ⚠️ Show Lock is ACTIVE. Rig Check test pattern overrides are locked out during live show. Unlock node above first.
       </div>
 
-      <div class="card" style="margin-bottom: 20px;">
-        <div class="card-title">Instant Field Diagnostic Patterns</div>
-        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
-          Drive hardware output directly without lighting console transmission. Verify wiring, pixel count, and voltage drops.
+      <div class="card">
+        <div class="card-title">
+          <span>Active Test Status (現在の点検発光状態)</span>
+          <span class="pill pill-blue" id="activeTestPill">● DMX Console Controlled</span>
+        </div>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+          照明卓やLANが未接続でも、Web画面から直接LEDテープの結線・点灯・色順・電源ドロップを点検できます。
         </p>
 
+        <!-- Basic Diagnostic Patterns -->
+        <h4 style="font-size:14px; margin-top:14px; margin-bottom:8px; color:var(--text-main);">1. 基本リグチェック発光</h4>
         <div class="rig-buttons">
           <button class="btn-test" id="btnTestRgbw" onclick="setTestPattern('rgbw')">
             <span style="font-size:20px">🎨</span>
-            <span>RGBW Cycle</span>
+            <span>RGBW 巡回</span>
+            <span style="font-size:11px;color:var(--text-muted);">色順・断線確認</span>
           </button>
           <button class="btn-test" id="btnTestWalker" onclick="setTestPattern('walker')">
             <span style="font-size:20px">🚶</span>
-            <span>Address Walker</span>
+            <span>アドレスウォーカー</span>
+            <span style="font-size:11px;color:var(--text-muted);">ピクセル数・進行方向</span>
           </button>
           <button class="btn-test" id="btnTestSoak" onclick="setTestPattern('soak')">
             <span style="font-size:20px">⚡</span>
-            <span>Power Soak 100%</span>
+            <span>100% 全白点灯</span>
+            <span style="font-size:11px;color:var(--text-muted);">電源容量・末端電圧降下</span>
           </button>
           <button class="btn-test" id="btnTestStrobe" onclick="setTestPattern('strobe')">
             <span style="font-size:20px">⚡⚡</span>
-            <span>High-Rate Strobe</span>
-          </button>
-          <button class="btn-test btn-danger" id="btnTestStop" onclick="setTestPattern('off')" style="grid-column: 1 / -1;">
-            <span>■ STOP / Resume Live DMX Control</span>
+            <span>高速ストロボ (40Hz)</span>
+            <span style="font-size:11px;color:var(--text-muted);">クロック・ノイズ耐性</span>
           </button>
         </div>
 
+        <hr style="border:none;border-top:1px solid var(--border);margin:18px 0;">
+
+        <!-- Autonomous Lighting Patterns (Slots 0..27) -->
+        <h4 style="font-size:14px; margin-bottom:8px; color:var(--text-main);">2. 自律点灯パターン発光 (Ch 6 Slots 0〜27)</h4>
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+          CLIの <code>pxtool test --pattern &lt;ID&gt; --speed &lt;VAL&gt; --size &lt;VAL&gt;</code> と完全互換で自律アニメーションをテストできます。
+        </p>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>アニメーションパターンスロット</label>
+            <select id="rigPatternSelect" class="form-control" onchange="syncPatternIdInput()">
+              <option value="24">Slot 24: Center Ripple Pulse (多重センターリップル・外側波及)</option>
+              <option value="25">Slot 25: Dual-Tone Color Wave (2色グラデーションウェーブ)</option>
+              <option value="26">Slot 26: Directional Wave Pulse (一方向連続パルス)</option>
+              <option value="27">Slot 27: Center Inward Pull (外側から中心への集約ウェーブ)</option>
+              <option value="16">Slot 16: Rainbow Wave (フルカラーレインボー)</option>
+              <option value="17">Slot 17: Knight Rider Scanner (ナイトライダースキャン)</option>
+              <option value="18">Slot 18: Center Wipe (センターワイプ)</option>
+              <option value="8">Slot 8: Sine Wave Breath (サイン波ブレス調光)</option>
+              <option value="1">Slot 1: Single Chase (単一ピクセルチェイス)</option>
+              <option value="0">Slot 0: Static Fill (単色ベタ塗り点灯)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>カスタム スロット番号 (0〜31)</label>
+            <input type="number" id="rigCustomSlot" class="form-control" min="0" max="31" value="24" onchange="syncPatternSelect()">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>再生速度 (Speed: 0〜255 / 128=等倍正方向, 192=等倍逆方向)</label>
+            <div class="slider-row">
+              <input type="range" id="rigSpeedSlider" min="0" max="255" value="128" oninput="updateSpeedLabel(this.value)">
+              <span class="slider-val" id="lblRigSpeed">128</span>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>波長・サイズ (Size: 0〜255 / 128=標準幅)</label>
+            <div class="slider-row">
+              <input type="range" id="rigSizeSlider" min="0" max="255" value="128" oninput="updateSizeLabel(this.value)">
+              <span class="slider-val" id="lblRigSize">128</span>
+            </div>
+          </div>
+        </div>
+
         <div class="color-picker-row">
-          <span style="font-size: 13px; font-weight: 600;">Custom Solid Color:</span>
-          <input type="color" id="customColorInput" value="#ff0000" onchange="applyCustomColor()" style="border:none;background:none;cursor:pointer;width:36px;height:36px;">
+          <span style="font-size: 13px; font-weight: 600;">パターンのベース色:</span>
+          <input type="color" id="patternColorInput" value="#00d2ff" style="border:none;background:none;cursor:pointer;width:34px;height:34px;">
+          <div class="swatch" style="background:#00d2ff" onclick="setPatternColorHex('#00d2ff')"></div>
+          <div class="swatch" style="background:#ff007f" onclick="setPatternColorHex('#ff007f')"></div>
+          <div class="swatch" style="background:#ffaa00" onclick="setPatternColorHex('#ffaa00')"></div>
+          <div class="swatch" style="background:#00ff88" onclick="setPatternColorHex('#00ff88')"></div>
+          <div class="swatch" style="background:#ffffff" onclick="setPatternColorHex('#ffffff')"></div>
+          <button class="btn btn-primary" onclick="playSelectedPattern()" style="margin-left: auto;">
+            <span>▶ パターン再生開始</span>
+          </button>
+        </div>
+
+        <hr style="border:none;border-top:1px solid var(--border);margin:18px 0;">
+
+        <!-- Solid Color & Stop Button -->
+        <h4 style="font-size:14px; margin-bottom:8px; color:var(--text-main);">3. 単色固定点灯 / 制御復帰</h4>
+        <div class="color-picker-row">
+          <span style="font-size: 13px; font-weight: 600;">任意カラー固定:</span>
+          <input type="color" id="customColorInput" value="#ff9100" onchange="applyCustomColor()" style="border:none;background:none;cursor:pointer;width:34px;height:34px;">
           <div class="swatch" style="background:#ff0000" onclick="quickColor(255,0,0)"></div>
           <div class="swatch" style="background:#00ff00" onclick="quickColor(0,255,0)"></div>
           <div class="swatch" style="background:#0000ff" onclick="quickColor(0,0,255)"></div>
@@ -539,68 +638,110 @@
           <div class="swatch" style="background:#00ffff" onclick="quickColor(0,255,255)"></div>
           <div class="swatch" style="background:#ff00ff" onclick="quickColor(255,0,255)"></div>
         </div>
+
+        <div style="margin-top: 18px;">
+          <button class="btn btn-danger" id="btnTestStop" onclick="setTestPattern('off')" style="width: 100%; padding: 12px; justify-content: center;">
+            <span>■ 点検発光停止 / 照明卓 DMX 制御へ復帰</span>
+          </button>
+        </div>
       </div>
     </div>
 
     <!-- TAB 3: CONFIGURATION -->
     <div id="tab-config" class="tab-pane">
       <div id="configSuccessAlert" class="alert alert-success" style="display:none;">
-        Configuration updated and saved to disk.
+        設定が正常に保存され、デーモンに適用されました。
       </div>
       <div id="configLockAlert" class="alert alert-warn" style="display:none;">
-        ⚠️ Show Lock is ACTIVE. Settings cannot be saved while locked. Unlock node above to enable editing.
+        ⚠️ Show Lock is ACTIVE. 設定変更は本番誤操作防止のためロックされています。上部のアンロックボタンを押して解除してください。
       </div>
 
       <div class="card">
-        <div class="card-title">Node & Protocol Settings</div>
+        <div class="card-title">LED テープ プリセット自動設定</div>
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+          現場で使われる代表的なLEDストリップの仕様（ピクセル数・色順・推奨ABL電力制限）を一括設定できます。
+        </p>
+        <div class="form-group">
+          <label>プリセットプロファイルの選択</label>
+          <select id="cfgPresetSelector" class="form-control" onchange="applyTapePreset(this.value)">
+            <option value="">-- プリセットを選択してください (手動設定も可能) --</option>
+            <option value="btf">BTF-LIGHTING FCOB 576LEDs/m 24V 10m (160 px, RGB, 7A ABL)</option>
+            <option value="generic">ノーブランド 5050 SMD 60LEDs/m 12V 5m (100 px, RBG, 6A ABL)</option>
+            <option value="ws2812b">汎用 WS2812B 60LEDs/m 5V 5m (300 px, GRB, 15A ABL)</option>
+            <option value="custom">カスタム / 手動入力</option>
+          </select>
+        </div>
+        <div id="presetNotice" class="alert alert-info" style="display:none; font-size:12px;"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">ハードウェア出力ドライバ設定</div>
         <form id="configForm" onsubmit="saveConfig(event)">
           <div class="form-row">
             <div class="form-group">
-              <label>Node Name</label>
+              <label>出力ドライバ方式</label>
+              <select id="cfgDriver" class="form-control" onchange="onDriverChanged(this.value)">
+                <option value="serial_mcu">Arduino Uno USB-Serial (serial_mcu, 実機テスト完了・推奨)</option>
+                <option value="spi_ws281x">Raspberry Pi 3B ハードウェア SPI (spi_ws281x, 今後テスト予定)</option>
+                <option value="virtual">仮想シミュレータ / ヘッドレステスト (virtual)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>デバイスパス</label>
+              <input type="text" id="cfgDevice" class="form-control" value="/dev/ttyUSB0" required>
+            </div>
+          </div>
+
+          <hr style="border:none;border-top:1px solid var(--border);margin:16px 0;">
+          <div class="card-title">Node & Protocol Settings</div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>ノード名 (Node Name)</label>
               <input type="text" id="cfgNodeName" class="form-control" required>
             </div>
             <div class="form-group">
-              <label>Bind Interface IP</label>
+              <label>バインド IP アドレス</label>
               <input type="text" id="cfgBindIp" class="form-control" value="0.0.0.0" required>
             </div>
           </div>
 
           <div class="form-row">
             <div class="form-group">
-              <label>Art-Net Protocol</label>
+              <label>Art-Net プロトコル (UDP 6454)</label>
               <select id="cfgArtnet" class="form-control">
-                <option value="true">Enabled (Port 6454)</option>
-                <option value="false">Disabled</option>
+                <option value="true">有効 (Enabled)</option>
+                <option value="false">無効 (Disabled)</option>
               </select>
             </div>
             <div class="form-group">
-              <label>sACN Protocol (E1.31)</label>
+              <label>sACN プロトコル (E1.31 / UDP 5568)</label>
               <select id="cfgSacn" class="form-control">
-                <option value="true">Enabled (Port 5568 Multicast)</option>
-                <option value="false">Disabled</option>
+                <option value="true">有効 (Enabled)</option>
+                <option value="false">無効 (Disabled)</option>
               </select>
             </div>
           </div>
 
           <hr style="border:none;border-top:1px solid var(--border);margin:16px 0;">
-          <div class="card-title">Fixture & DMX Mapping</div>
+          <div class="card-title">フィクスチャ & DMX マッピング</div>
 
           <div class="form-row">
             <div class="form-group">
-              <label>Personality Mode</label>
+              <label>パーソナリティモード (制御方式)</label>
               <select id="cfgPersonality" class="form-control">
                 <option value="preset_7ch">Preset 7ch (Dimmer/Strobe, RGBW, FX, Audio Sync)</option>
-                <option value="standard">Standard 12ch (Extended Control)</option>
+                <option value="standard">Standard 12ch (Extended Control - Speed/Size/Audio)</option>
                 <option value="pixel_direct">Pixel Direct RGB (Media Server 3ch/px)</option>
               </select>
             </div>
             <div class="form-group">
-              <label>Color Order</label>
+              <label>カラーオーダー (色順列)</label>
               <select id="cfgColorOrder" class="form-control">
-                <option value="brg">BRG (Standard WS2811 24V)</option>
-                <option value="grb">GRB (WS2812B 5V)</option>
-                <option value="rgb">RGB</option>
-                <option value="rbg">RBG</option>
+                <option value="rgb">RGB (BTF FCOB 24V 等)</option>
+                <option value="rbg">RBG (ノーブランド 12V テープ等)</option>
+                <option value="grb">GRB (WS2812B 5V 等)</option>
+                <option value="brg">BRG (標準 WS2811 一部ロット)</option>
                 <option value="bgr">BGR</option>
                 <option value="gbr">GBR</option>
               </select>
@@ -609,47 +750,47 @@
 
           <div class="form-row">
             <div class="form-group">
-              <label>Start Universe</label>
+              <label>開始ユニバース (Universe)</label>
               <input type="number" id="cfgUniverse" class="form-control" min="1" max="63999" value="1" required>
             </div>
             <div class="form-group">
-              <label>Start Address (1-512)</label>
+              <label>開始チャンネル (Address: 1-512)</label>
               <input type="number" id="cfgAddress" class="form-control" min="1" max="512" value="1" required>
             </div>
           </div>
 
           <div class="form-row">
             <div class="form-group">
-              <label>Total LED Pixels</label>
-              <input type="number" id="cfgPixels" class="form-control" min="1" max="3000" value="300" required>
+              <label>制御ピクセル数 (Total Pixels)</label>
+              <input type="number" id="cfgPixels" class="form-control" min="1" max="3000" value="160" required>
             </div>
             <div class="form-group">
-              <label>PSU Max Current Limit (mA)</label>
-              <input type="number" id="cfgPsuMax" class="form-control" min="1000" max="60000" value="15000" required>
+              <label>電源電流リミット ABL (mA)</label>
+              <input type="number" id="cfgPsuMax" class="form-control" min="1000" max="60000" value="7000" required>
             </div>
           </div>
 
           <div class="form-row">
             <div class="form-group">
-              <label>Data Loss Failsafe Policy</label>
+              <label>信号断フェイルセーフ動作 (Failsafe)</label>
               <select id="cfgFailsafePolicy" class="form-control">
-                <option value="hold">Hold Last Frame (Standard Live Concert)</option>
-                <option value="hold_then_fade">Hold then Fade to Black</option>
-                <option value="blackout">Immediate Blackout</option>
+                <option value="hold">最終フレーム無限保持 (Hold Last Frame - 推奨)</option>
+                <option value="hold_then_fade">保持後フェードアウト (Hold then Fade)</option>
+                <option value="blackout">即時ブラックアウト (Blackout)</option>
               </select>
             </div>
             <div class="form-group">
-              <label>Universe Span Mode (Pixel Direct)</label>
+              <label>ユニバース跨ぎ方式 (Pixel Direct)</label>
               <select id="cfgSpanMode" class="form-control">
-                <option value="per_170px">Per 170 Pixels (Skip Ch 511-512)</option>
-                <option value="packed">Packed Continuously</option>
+                <option value="per_170px">Per 170 Pixels (Ch 511-512 スキップ・標準)</option>
+                <option value="packed">Packed 連続跨ぎ</option>
               </select>
             </div>
           </div>
 
           <div style="margin-top: 20px; display:flex; gap:12px;">
-            <button type="submit" class="btn btn-primary" id="btnSaveConfig">Save & Apply Changes</button>
-            <button type="button" class="btn btn-outline" onclick="loadConfig()">Reload</button>
+            <button type="submit" class="btn btn-primary" id="btnSaveConfig">設定を保存して適用 (Save & Apply)</button>
+            <button type="button" class="btn btn-outline" onclick="loadConfig()">設定再読込 (Reload)</button>
           </div>
         </form>
       </div>
@@ -658,7 +799,7 @@
 
   <footer class="app-footer">
     <div><strong>PixelNode Lighting System</strong> &bull; <code>pixelnoded v0.1.0</code></div>
-    <div style="font-size:12px;">High-Reliability Art-Net 4 & sACN Node &bull; Deterministic Engine</div>
+    <div style="font-size:12px;">Arduino Uno (USB-Serial) 実機検証済み &bull; Raspberry Pi SPI (今後テスト予定)</div>
   </footer>
 
   <script>
@@ -728,13 +869,8 @@
           document.getElementById('statAudioStatus').textContent = 'No Signal / Offline';
         }
 
-        // Active test mode buttons
-        const testModes = ['off', 'rgbw', 'walker', 'soak', 'strobe'];
-        const activeMode = testModes[data.test_mode || 0];
-        document.getElementById('btnTestRgbw').classList.toggle('active', activeMode === 'rgbw');
-        document.getElementById('btnTestWalker').classList.toggle('active', activeMode === 'walker');
-        document.getElementById('btnTestSoak').classList.toggle('active', activeMode === 'soak');
-        document.getElementById('btnTestStrobe').classList.toggle('active', activeMode === 'strobe');
+        // Active test mode indicator
+        updateActiveTestBadge(data.test_mode || 0, data.test_pattern || 0, data.test_speed || 128, data.test_size || 128);
 
         // Channel Preview
         renderChannels(data.channels || [], data.personality || 'preset_7ch');
@@ -755,10 +891,44 @@
       }
     }
 
+    function updateActiveTestBadge(mode, pattern, speed, size) {
+      const pill = document.getElementById('activeTestPill');
+      const testModes = ['off', 'rgbw', 'walker', 'soak', 'strobe', 'color', 'pattern'];
+      const activeModeName = testModes[mode] || 'off';
+
+      document.getElementById('btnTestRgbw').classList.toggle('active', activeModeName === 'rgbw');
+      document.getElementById('btnTestWalker').classList.toggle('active', activeModeName === 'walker');
+      document.getElementById('btnTestSoak').classList.toggle('active', activeModeName === 'soak');
+      document.getElementById('btnTestStrobe').classList.toggle('active', activeModeName === 'strobe');
+
+      if (mode === 0) {
+        pill.textContent = '● DMX Console Controlled (正常制御中)';
+        pill.className = 'pill pill-green';
+      } else if (mode === 1) {
+        pill.textContent = '● Test Active: RGBW 巡回テスト';
+        pill.className = 'pill pill-orange';
+      } else if (mode === 2) {
+        pill.textContent = '● Test Active: アドレスウォーカー';
+        pill.className = 'pill pill-orange';
+      } else if (mode === 3) {
+        pill.textContent = '● Test Active: 100% 全白点灯 (Power Soak)';
+        pill.className = 'pill pill-orange';
+      } else if (mode === 4) {
+        pill.textContent = '● Test Active: 高速ストロボ (40Hz)';
+        pill.className = 'pill pill-orange';
+      } else if (mode === 5) {
+        pill.textContent = '● Test Active: 単色固定点灯';
+        pill.className = 'pill pill-blue';
+      } else if (mode === 6) {
+        pill.textContent = `● Test Active: Pattern Slot ${pattern} (Spd: ${speed}, Sz: ${size})`;
+        pill.className = 'pill pill-blue';
+      }
+    }
+
     function renderChannels(chs, personality) {
       const grid = document.getElementById('channelsGrid');
       let names;
-      if (personality === 'standard_12ch' || chs.length > 7) {
+      if (personality === 'standard' || chs.length > 7) {
         names = ['Dimmer', 'Strobe', 'Red', 'Green', 'Blue', 'White', 'Pattern', 'Speed', 'Size', 'Audio Mode', 'Audio Gain', 'Control'];
       } else if (personality === 'pixel_direct') {
         names = ['Px 1 R', 'Px 1 G', 'Px 1 B', 'Px 2 R', 'Px 2 G', 'Px 2 B', 'Px 3 R', 'Px 3 G', 'Px 3 B', 'Px 4 R', 'Px 4 G', 'Px 4 B'];
@@ -814,7 +984,7 @@
       rigAlert.style.display = locked ? 'flex' : 'none';
       cfgAlert.style.display = locked ? 'flex' : 'none';
 
-      // Disable/enable form inputs
+      // Disable/enable inputs and buttons
       if (cfgForm) {
         const inputs = cfgForm.querySelectorAll('input, select, button');
         inputs.forEach(el => {
@@ -823,6 +993,10 @@
           }
         });
       }
+      document.querySelectorAll('.btn-test').forEach(b => {
+        b.disabled = locked;
+      });
+      document.getElementById('cfgPresetSelector').disabled = locked;
     }
 
     async function toggleShowLock() {
@@ -848,6 +1022,57 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode: mode })
       });
+      fetchStatus();
+    }
+
+    function syncPatternIdInput() {
+      const sel = document.getElementById('rigPatternSelect').value;
+      document.getElementById('rigCustomSlot').value = sel;
+    }
+
+    function syncPatternSelect() {
+      const val = document.getElementById('rigCustomSlot').value;
+      const sel = document.getElementById('rigPatternSelect');
+      sel.value = val;
+    }
+
+    function updateSpeedLabel(val) {
+      document.getElementById('lblRigSpeed').textContent = val;
+    }
+
+    function updateSizeLabel(val) {
+      document.getElementById('lblRigSize').textContent = val;
+    }
+
+    function setPatternColorHex(hex) {
+      document.getElementById('patternColorInput').value = hex;
+    }
+
+    async function playSelectedPattern() {
+      if (isLocked) {
+        alert('Node is LOCKED for live show. Unlock node first.');
+        return;
+      }
+      const pat = parseInt(document.getElementById('rigCustomSlot').value) || 0;
+      const spd = parseInt(document.getElementById('rigSpeedSlider').value) || 128;
+      const sz = parseInt(document.getElementById('rigSizeSlider').value) || 128;
+      const hex = document.getElementById('patternColorInput').value;
+      const r = parseInt(hex.substr(1, 2), 16);
+      const g = parseInt(hex.substr(3, 2), 16);
+      const b = parseInt(hex.substr(5, 2), 16);
+
+      await fetch('/api/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'pattern',
+          pattern: pat,
+          speed: spd,
+          size: sz,
+          color: [r, g, b]
+        })
+      });
+      fetchStatus();
     }
 
     async function applyCustomColor() {
@@ -869,6 +1094,47 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode: 'color', color: [r, g, b] })
       });
+      fetchStatus();
+    }
+
+    function onDriverChanged(driver) {
+      const devInput = document.getElementById('cfgDevice');
+      if (driver === 'serial_mcu') {
+        if (!devInput.value || devInput.value.includes('spidev')) {
+          devInput.value = '/dev/ttyUSB0';
+        }
+      } else if (driver === 'spi_ws281x') {
+        if (!devInput.value || devInput.value.includes('tty')) {
+          devInput.value = '/dev/spidev0.0';
+        }
+      } else {
+        devInput.value = 'virtual';
+      }
+    }
+
+    function applyTapePreset(pid) {
+      const notice = document.getElementById('presetNotice');
+      if (pid === 'btf') {
+        document.getElementById('cfgPixels').value = 160;
+        document.getElementById('cfgColorOrder').value = 'rgb';
+        document.getElementById('cfgPsuMax').value = 7000;
+        notice.style.display = 'block';
+        notice.textContent = 'BTF-LIGHTING FCOB 24V 10m: 160px (36LEDs/IC), 色順RGB, ABL 7000mA (両端電源注入必須)';
+      } else if (pid === 'generic') {
+        document.getElementById('cfgPixels').value = 100;
+        document.getElementById('cfgColorOrder').value = 'rbg';
+        document.getElementById('cfgPsuMax').value = 6000;
+        notice.style.display = 'block';
+        notice.textContent = 'ノーブランド 12V 5m: 100px (3LEDs/IC), 色順RBG (緑/青反転), ABL 6000mA (両端電源注入必須)';
+      } else if (pid === 'ws2812b') {
+        document.getElementById('cfgPixels').value = 300;
+        document.getElementById('cfgColorOrder').value = 'grb';
+        document.getElementById('cfgPsuMax').value = 15000;
+        notice.style.display = 'block';
+        notice.textContent = '汎用 WS2812B 5V 5m: 300px (1球/IC), 色順GRB, ABL 15000mA (両端＋2mおき給電必須)';
+      } else {
+        notice.style.display = 'none';
+      }
     }
 
     async function loadConfig() {
@@ -891,6 +1157,8 @@
 
         if (cfg.output && cfg.output.length > 0) {
           const o = cfg.output[0];
+          document.getElementById('cfgDriver').value = o.driver;
+          document.getElementById('cfgDevice').value = o.device;
           document.getElementById('cfgColorOrder').value = o.color_order;
           document.getElementById('cfgPixels').value = o.pixels;
           document.getElementById('cfgPsuMax').value = o.psu_max_current_ma;
@@ -911,6 +1179,12 @@
         return;
       }
 
+      const driver = document.getElementById('cfgDriver').value;
+      const device = document.getElementById('cfgDevice').value;
+      const pixels = parseInt(document.getElementById('cfgPixels').value);
+      const colorOrder = document.getElementById('cfgColorOrder').value;
+      const psuMax = parseInt(document.getElementById('cfgPsuMax').value);
+
       const body = {
         node: {
           name: document.getElementById('cfgNodeName').value,
@@ -928,16 +1202,17 @@
         },
         output: [{
           id: 'out1',
-          driver: 'spi_ws281x',
-          device: '/dev/spidev0.0',
+          driver: driver,
+          device: device,
+          baud_rate: 115200,
           chip: 'ws2811',
-          color_order: document.getElementById('cfgColorOrder').value,
-          pixels: parseInt(document.getElementById('cfgPixels').value),
-          psu_max_current_ma: parseInt(document.getElementById('cfgPsuMax').value)
+          color_order: colorOrder,
+          pixels: pixels,
+          psu_max_current_ma: psuMax
         }],
         fixture: [{
           output: 'out1',
-          pixel_range: [0, parseInt(document.getElementById('cfgPixels').value) - 1],
+          pixel_range: [0, pixels - 1],
           personality: document.getElementById('cfgPersonality').value,
           white_mode: 'rgb_blend',
           universe_span: document.getElementById('cfgSpanMode').value,
@@ -966,7 +1241,7 @@
       }
     }
 
-    // Polling timer
+    // Polling timer for real-time synchronization with CLI / daemon
     setInterval(fetchStatus, 500);
     fetchStatus();
     loadConfig();

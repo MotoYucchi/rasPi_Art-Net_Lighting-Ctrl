@@ -7,7 +7,7 @@ pub mod web;
 use audio_proto::AudioFeaturePacket;
 use dmx_universe::{FailsafeMode, UniverseStore};
 use engine::{ColorOrder, RenderEngine, RgbColor, TestPatternMode};
-use fixture::{FixtureConfig, Personality, UniverseSpanMode, WhiteMode};
+use fixture::{ColorRgbw, FixtureConfig, Personality, RenderCommand, StrobeMode, UniverseSpanMode, WhiteMode};
 use output::PixelSink;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -326,7 +326,7 @@ address = 1
 
     // 3. Initialize outputs and render engines
     let first_out = &config.output[0];
-    let total_pixels = first_out.pixels;
+    let mut total_pixels = first_out.pixels;
     let color_order = parse_color_order(&first_out.color_order);
     let mut render_engine = RenderEngine::new(color_order, first_out.psu_max_current_ma);
 
@@ -397,6 +397,9 @@ address = 1
         max_psu_ma: AtomicU32::new(first_out.psu_max_current_ma),
         failsafe_active: AtomicBool::new(false),
         test_mode: AtomicU8::new(0),
+        test_pattern: AtomicU8::new(0),
+        test_speed: AtomicU8::new(128),
+        test_size: AtomicU8::new(128),
         custom_rgb: [AtomicU8::new(255), AtomicU8::new(0), AtomicU8::new(0)],
         channels: RwLock::new(vec![0u8; 12]),
         universes: RwLock::new(vec![]),
@@ -436,8 +439,11 @@ address = 1
     let start_time = Instant::now();
     let frame_interval = Duration::from_millis(20); // 50 Hz
 
-    let mut active_test_mode: u8 = 0; // 0 = off (DMX), 1 = RGBW, 2 = Walker, 3 = Soak, 4 = Strobe, 5 = Color
+    let mut active_test_mode: u8 = 0; // 0 = off (DMX), 1 = RGBW, 2 = Walker, 3 = Soak, 4 = Strobe, 5 = Color, 6 = Pattern
     let mut active_custom_color = RgbColor { r: 255, g: 0, b: 0 };
+    let mut active_test_pattern: u8 = 0;
+    let mut active_test_speed: u8 = 128;
+    let mut active_test_size: u8 = 128;
 
     let mut loop_count: u64 = 0;
     let mut last_fps_calc = Instant::now();
@@ -451,10 +457,14 @@ address = 1
         // Step 0: Check web commands (non-blocking)
         while let Ok(cmd) = cmd_rx.try_recv() {
             match cmd {
-                WebCommand::SetTestMode(mode, rgb) => {
+                WebCommand::SetTestMode { mode, rgb, pattern, speed, size } => {
                     active_test_mode = mode;
                     active_custom_color = RgbColor { r: rgb[0], g: rgb[1], b: rgb[2] };
-                    info!("Web command: set test mode {} (RGB: {:?})", mode, rgb);
+                    active_test_pattern = pattern;
+                    active_test_speed = speed;
+                    active_test_size = size;
+                    info!("Web command: set test mode {} (RGB: {:?}, pattern: {}, speed: {}, size: {})",
+                        mode, rgb, pattern, speed, size);
                 }
                 WebCommand::SetLock(locked) => {
                     info!("Web command: set show lock = {}", locked);
@@ -470,6 +480,57 @@ address = 1
                         let co = parse_color_order(&out_cfg.color_order);
                         render_engine = RenderEngine::new(co, out_cfg.psu_max_current_ma);
                         shared_state.max_psu_ma.store(out_cfg.psu_max_current_ma, Ordering::Relaxed);
+
+                        if out_cfg.pixels != total_pixels {
+                            total_pixels = out_cfg.pixels;
+                            pixel_buffer.resize(total_pixels, RgbColor::default());
+                            byte_buffer.resize(total_pixels * 3, 0);
+                        }
+
+                        // Recreate output sink for updated driver/device
+                        let new_sink: Box<dyn PixelSink> = match out_cfg.driver.as_str() {
+                            #[cfg(target_os = "linux")]
+                            "spi_ws281x" => match output::spi_ws281x::SpiWs281xSink::open(&out_cfg.device, total_pixels) {
+                                Ok(s) => {
+                                    info!("Switched to SPI output on '{}'", out_cfg.device);
+                                    Box::new(s)
+                                }
+                                Err(e) => {
+                                    warn!("Failed to open SPI device '{}': {}. Falling back to virtual sink.", out_cfg.device, e);
+                                    Box::new(output::VirtualSimSink::new())
+                                }
+                            },
+                            #[cfg(target_os = "linux")]
+                            "serial_mcu" | "usb_serial" => match output::serial_mcu::SerialMcuSink::open(&out_cfg.device, out_cfg.baud_rate) {
+                                Ok(mut sink) => {
+                                    info!("Switched to USB-Serial MCU output on '{}' (baud: {})", out_cfg.device, out_cfg.baud_rate);
+                                    let failsafe_mode = match new_cfg.failsafe.on_data_loss.as_str() {
+                                        "blackout" => 0,
+                                        "hold" => 1,
+                                        "autonomous" => 2,
+                                        _ => 1,
+                                    };
+                                    let timeout_ms = (new_cfg.failsafe.hold_timeout_sec as u16).saturating_mul(1000).max(500);
+                                    let co_code = match out_cfg.color_order.to_lowercase().as_str() {
+                                        "grb" => 0,
+                                        "rgb" => 1,
+                                        "rbg" => 2,
+                                        "brg" => 3,
+                                        "bgr" => 4,
+                                        "gbr" => 5,
+                                        _ => 0,
+                                    };
+                                    sink.send_config_with_color_order(out_cfg.pixels as u16, failsafe_mode, timeout_ms, co_code).ok();
+                                    Box::new(sink)
+                                }
+                                Err(e) => {
+                                    warn!("Failed to open Serial MCU device '{}': {}. Falling back to virtual sink.", out_cfg.device, e);
+                                    Box::new(output::VirtualSimSink::new())
+                                }
+                            },
+                            _ => Box::new(output::VirtualSimSink::new()),
+                        };
+                        output_sink = new_sink;
                     }
                 }
             }
@@ -564,6 +625,24 @@ address = 1
                 3 => render_engine.render_test_pattern(TestPatternMode::PowerSoak100, elapsed, &mut pixel_buffer),
                 4 => render_engine.render_test_pattern(TestPatternMode::HighRateStrobe40Hz, elapsed, &mut pixel_buffer),
                 5 => pixel_buffer.fill(active_custom_color),
+                6 => {
+                    let test_cmd = RenderCommand::Preset {
+                        master_dimmer: 255,
+                        strobe: StrobeMode::Open,
+                        color: ColorRgbw {
+                            r: active_custom_color.r,
+                            g: active_custom_color.g,
+                            b: active_custom_color.b,
+                            w: 0,
+                        },
+                        pattern_id: active_test_pattern,
+                        audio_mode_id: 0,
+                        speed: active_test_speed,
+                        size: active_test_size,
+                        white_mode: WhiteMode::RgbBlend,
+                    };
+                    render_engine.render(&test_cmd, None, elapsed, &mut pixel_buffer);
+                }
                 _ => {}
             }
         } else {

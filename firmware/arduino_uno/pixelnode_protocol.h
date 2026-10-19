@@ -125,6 +125,10 @@ static inline bool px_parser_feed_byte(PxPacketParser* p, uint8_t byte) {
             break;
 
         case PX_STATE_WAIT_OPCODE:
+            if (byte < PX_OP_STREAM_PIXELS || byte > PX_OP_STATUS_REPLY) {
+                p->state = PX_STATE_WAIT_MAGIC0;
+                break;
+            }
             p->opcode = byte;
             p->running_crc = px_crc8_update(p->running_crc, byte);
             p->state = PX_STATE_WAIT_SEQ;
@@ -142,12 +146,39 @@ static inline bool px_parser_feed_byte(PxPacketParser* p, uint8_t byte) {
             p->state = PX_STATE_WAIT_LEN_HI;
             break;
 
-        case PX_STATE_WAIT_LEN_HI:
+        case PX_STATE_WAIT_LEN_HI: {
             p->expected_len |= ((uint16_t)byte << 8);
             p->running_crc = px_crc8_update(p->running_crc, byte);
             p->payload_idx = 0;
 
-            if (p->expected_len > PX_MAX_PAYLOAD_LEN) {
+            bool valid_len = (p->expected_len <= PX_MAX_PAYLOAD_LEN);
+            if (valid_len) {
+                switch (p->opcode) {
+                    case PX_OP_STREAM_PIXELS:
+                        valid_len = (p->expected_len % 3 == 0);
+                        break;
+                    case PX_OP_DMX_CHANNELS:
+                        valid_len = (p->expected_len == 9);
+                        break;
+                    case PX_OP_HEARTBEAT:
+                        valid_len = (p->expected_len == 0);
+                        break;
+                    case PX_OP_CONFIG:
+                        valid_len = (p->expected_len >= 5 && p->expected_len <= 6);
+                        break;
+                    case PX_OP_AUDIO_FEATURES:
+                        valid_len = (p->expected_len == 6);
+                        break;
+                    case PX_OP_STATUS_REPLY:
+                        valid_len = (p->expected_len >= 7);
+                        break;
+                    default:
+                        valid_len = false;
+                        break;
+                }
+            }
+
+            if (!valid_len) {
                 p->packets_overflow_errors++;
                 p->state = PX_STATE_WAIT_MAGIC0;
             } else if (p->expected_len == 0) {
@@ -156,6 +187,7 @@ static inline bool px_parser_feed_byte(PxPacketParser* p, uint8_t byte) {
                 p->state = PX_STATE_WAIT_PAYLOAD;
             }
             break;
+        }
 
         case PX_STATE_WAIT_PAYLOAD:
             p->payload[p->payload_idx++] = byte;

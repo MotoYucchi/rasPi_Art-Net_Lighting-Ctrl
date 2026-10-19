@@ -30,7 +30,13 @@ pub struct AudioTelemetryInfo {
 }
 
 pub enum WebCommand {
-    SetTestMode(u8, [u8; 3]),
+    SetTestMode {
+        mode: u8,
+        rgb: [u8; 3],
+        pattern: u8,
+        speed: u8,
+        size: u8,
+    },
     SetLock(bool),
     ApplyConfig(Box<crate::Config>),
 }
@@ -46,6 +52,9 @@ pub struct SharedWebState {
     pub max_psu_ma: AtomicU32,
     pub failsafe_active: AtomicBool,
     pub test_mode: AtomicU8,
+    pub test_pattern: AtomicU8,
+    pub test_speed: AtomicU8,
+    pub test_size: AtomicU8,
     pub custom_rgb: [AtomicU8; 3],
     pub channels: RwLock<Vec<u8>>,
     pub universes: RwLock<Vec<UniverseStatusInfo>>,
@@ -70,6 +79,9 @@ struct StatusResponse<'a> {
     max_psu_ma: u32,
     failsafe_active: bool,
     test_mode: u8,
+    test_pattern: u8,
+    test_speed: u8,
+    test_size: u8,
     personality: String,
     channels: &'a [u8],
     universes: Vec<UniverseStatusInfo>,
@@ -81,6 +93,12 @@ struct TestRequest {
     mode: String,
     #[serde(default)]
     color: Option<[u8; 3]>,
+    #[serde(default)]
+    pattern: Option<u8>,
+    #[serde(default)]
+    speed: Option<u8>,
+    #[serde(default)]
+    size: Option<u8>,
 }
 
 #[derive(serde::Deserialize)]
@@ -158,6 +176,9 @@ pub fn start_web_server(
                         max_psu_ma: state.max_psu_ma.load(Ordering::Relaxed),
                         failsafe_active: state.failsafe_active.load(Ordering::Relaxed),
                         test_mode: state.test_mode.load(Ordering::Relaxed),
+                        test_pattern: state.test_pattern.load(Ordering::Relaxed),
+                        test_speed: state.test_speed.load(Ordering::Relaxed),
+                        test_size: state.test_size.load(Ordering::Relaxed),
                         personality,
                         channels: chs_slice,
                         universes: univs,
@@ -222,19 +243,40 @@ pub fn start_web_server(
                     req.as_reader().read_to_string(&mut body_str).ok();
                     match serde_json::from_str::<TestRequest>(&body_str) {
                         Ok(tr) => {
+                            let pat = tr.pattern.unwrap_or(0);
+                            let spd = tr.speed.unwrap_or(128);
+                            let sz = tr.size.unwrap_or(128);
+
                             let (m_val, rgb) = match tr.mode.to_lowercase().as_str() {
                                 "rgbw" => (1, [0, 0, 0]),
                                 "walker" => (2, [0, 0, 0]),
                                 "soak" => (3, [0, 0, 0]),
                                 "strobe" => (4, [0, 0, 0]),
                                 "color" => (5, tr.color.unwrap_or([255, 0, 0])),
-                                _ => (0, [0, 0, 0]),
+                                "pattern" => (6, tr.color.unwrap_or([255, 255, 255])),
+                                "off" => (0, [0, 0, 0]),
+                                _ => {
+                                    if tr.pattern.is_some() {
+                                        (6, tr.color.unwrap_or([255, 255, 255]))
+                                    } else {
+                                        (0, [0, 0, 0])
+                                    }
+                                }
                             };
                             state.test_mode.store(m_val, Ordering::SeqCst);
+                            state.test_pattern.store(pat, Ordering::SeqCst);
+                            state.test_speed.store(spd, Ordering::SeqCst);
+                            state.test_size.store(sz, Ordering::SeqCst);
                             state.custom_rgb[0].store(rgb[0], Ordering::SeqCst);
                             state.custom_rgb[1].store(rgb[1], Ordering::SeqCst);
                             state.custom_rgb[2].store(rgb[2], Ordering::SeqCst);
-                            state.cmd_tx.send(WebCommand::SetTestMode(m_val, rgb)).ok();
+                            state.cmd_tx.send(WebCommand::SetTestMode {
+                                mode: m_val,
+                                rgb,
+                                pattern: pat,
+                                speed: spd,
+                                size: sz,
+                            }).ok();
 
                             let mut resp = Response::from_string(r#"{"status":"ok"}"#);
                             if let Some(ref h) = json_header {

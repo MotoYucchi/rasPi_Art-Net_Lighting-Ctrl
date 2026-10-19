@@ -247,6 +247,9 @@ fn test_real_hardware_serial_port_if_connected() {
             rgb_frame[offset + 1] = ((frame_idx * 3 + px * 2) % 256) as u8;   // G
             rgb_frame[offset + 2] = ((frame_idx * 7) % 256) as u8;            // B
         }
+        if frame_idx % 10 == 0 {
+            println!("Sending frame {}/50...", frame_idx);
+        }
         sink.write_pixels(&rgb_frame)
             .expect("Failed to stream pixel frame to real hardware");
         std::thread::sleep(std::time::Duration::from_millis(20));
