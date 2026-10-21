@@ -328,7 +328,12 @@ address = 1
     let first_out = &config.output[0];
     let mut total_pixels = first_out.pixels;
     let color_order = parse_color_order(&first_out.color_order);
-    let mut render_engine = RenderEngine::new(color_order, first_out.psu_max_current_ma);
+    let effective_psu_ma = if first_out.driver == "serial_mcu" || first_out.driver == "usb_serial" {
+        first_out.psu_max_current_ma.min(330)
+    } else {
+        first_out.psu_max_current_ma
+    };
+    let mut render_engine = RenderEngine::new(color_order, effective_psu_ma);
 
     let mut output_sink: Box<dyn PixelSink> = match first_out.driver.as_str() {
         #[cfg(target_os = "linux")]
@@ -478,7 +483,12 @@ address = 1
                     if !new_cfg.output.is_empty() {
                         let out_cfg = &new_cfg.output[0];
                         let co = parse_color_order(&out_cfg.color_order);
-                        render_engine = RenderEngine::new(co, out_cfg.psu_max_current_ma);
+                        let effective_ma = if out_cfg.driver == "serial_mcu" || out_cfg.driver == "usb_serial" {
+                            out_cfg.psu_max_current_ma.min(330)
+                        } else {
+                            out_cfg.psu_max_current_ma
+                        };
+                        render_engine = RenderEngine::new(co, effective_ma);
                         shared_state.max_psu_ma.store(out_cfg.psu_max_current_ma, Ordering::Relaxed);
 
                         if out_cfg.pixels != total_pixels {
@@ -486,6 +496,9 @@ address = 1
                             pixel_buffer.resize(total_pixels, RgbColor::default());
                             byte_buffer.resize(total_pixels * 3, 0);
                         }
+
+                        // Drop old sink FIRST to release any open serial/SPI file descriptor before reopening!
+                        let _ = std::mem::replace(&mut output_sink, Box::new(output::VirtualSimSink::new()));
 
                         // Recreate output sink for updated driver/device
                         let new_sink: Box<dyn PixelSink> = match out_cfg.driver.as_str() {
@@ -618,13 +631,46 @@ address = 1
         let elapsed = start_time.elapsed();
 
         // Step C: Test Pattern Override or Normal DMX Render
+        let mut dmx_offload: Option<(u8, u8, u8, u8, u8, u8, u8, u8, u8)> = None;
         if active_test_mode > 0 {
             match active_test_mode {
-                1 => render_engine.render_test_pattern(TestPatternMode::RgbwCycle, elapsed, &mut pixel_buffer),
-                2 => render_engine.render_test_pattern(TestPatternMode::AddressWalker, elapsed, &mut pixel_buffer),
-                3 => render_engine.render_test_pattern(TestPatternMode::PowerSoak100, elapsed, &mut pixel_buffer),
-                4 => render_engine.render_test_pattern(TestPatternMode::HighRateStrobe40Hz, elapsed, &mut pixel_buffer),
-                5 => pixel_buffer.fill(active_custom_color),
+                1 => {
+                    render_engine.render_test_pattern(TestPatternMode::RgbwCycle, elapsed, &mut pixel_buffer);
+                    let step = (elapsed.as_secs() % 4) as u8;
+                    let (r, g, b) = match step {
+                        0 => (255, 0, 0),
+                        1 => (0, 255, 0),
+                        2 => (0, 0, 255),
+                        _ => (255, 255, 255),
+                    };
+                    dmx_offload = Some((255, r, g, b, 0, 0, 0, 128, 128));
+                }
+                2 => {
+                    render_engine.render_test_pattern(TestPatternMode::AddressWalker, elapsed, &mut pixel_buffer);
+                    dmx_offload = Some((255, 255, 255, 255, 0, 28 * 8, 0, 128, 128));
+                }
+                3 => {
+                    render_engine.render_test_pattern(TestPatternMode::PowerSoak100, elapsed, &mut pixel_buffer);
+                    dmx_offload = Some((255, 255, 255, 255, 0, 0, 0, 128, 128));
+                }
+                4 => {
+                    render_engine.render_test_pattern(TestPatternMode::HighRateStrobe40Hz, elapsed, &mut pixel_buffer);
+                    dmx_offload = Some((255, 255, 255, 255, 255, 0, 0, 128, 128));
+                }
+                5 => {
+                    pixel_buffer.fill(active_custom_color);
+                    dmx_offload = Some((
+                        255,
+                        active_custom_color.r,
+                        active_custom_color.g,
+                        active_custom_color.b,
+                        0,
+                        0,
+                        0,
+                        128,
+                        128,
+                    ));
+                }
                 6 => {
                     let test_cmd = RenderCommand::Preset {
                         master_dimmer: 255,
@@ -642,11 +688,58 @@ address = 1
                         white_mode: WhiteMode::RgbBlend,
                     };
                     render_engine.render(&test_cmd, None, elapsed, &mut pixel_buffer);
+                    dmx_offload = Some((
+                        255,
+                        active_custom_color.r,
+                        active_custom_color.g,
+                        active_custom_color.b,
+                        0,
+                        active_test_pattern,
+                        0,
+                        active_test_speed,
+                        active_test_size,
+                    ));
                 }
                 _ => {}
             }
         } else {
             let cmd = fixture.interpret(&universe_store, fixture_px_count);
+            if let RenderCommand::Preset {
+                master_dimmer,
+                strobe,
+                color,
+                pattern_id,
+                audio_mode_id,
+                speed,
+                size,
+                white_mode,
+            } = cmd
+            {
+                let w_add = match white_mode {
+                    WhiteMode::RgbBlend => color.w,
+                    WhiteMode::Ignore => 0,
+                };
+                let r = color.r.saturating_add(w_add);
+                let g = color.g.saturating_add(w_add);
+                let b = color.b.saturating_add(w_add);
+                let strobe_dmx = match strobe {
+                    StrobeMode::Open => 0,
+                    StrobeMode::Rate(hz) => {
+                        (16.0_f32 + ((hz - 1.0_f32) / 24.0_f32) * 239.0_f32).clamp(16.0_f32, 255.0_f32) as u8
+                    }
+                };
+                dmx_offload = Some((
+                    master_dimmer,
+                    r,
+                    g,
+                    b,
+                    strobe_dmx,
+                    pattern_id,
+                    audio_mode_id,
+                    speed,
+                    size,
+                ));
+            }
             render_engine.render(
                 &cmd,
                 last_audio_frame.as_ref(),
@@ -655,10 +748,24 @@ address = 1
             );
         }
 
-        // Step D: Pack color order and output to hardware
-        render_engine.pack_bytes(&pixel_buffer, &mut byte_buffer);
-        if let Err(e) = output_sink.write_pixels(&byte_buffer) {
-            error!("PixelSink write error: {}", e);
+        // Step D: Output to hardware (preferring 16-byte MCU command offload when supported)
+        let handled_by_offload = if let Some((dim, r, g, b, strb, pat, aud, spd, sz)) = dmx_offload {
+            match output_sink.write_dmx_command(dim, r, g, b, strb, pat, aud, spd, sz) {
+                Ok(handled) => handled,
+                Err(e) => {
+                    error!("PixelSink write error: {}", e);
+                    true
+                }
+            }
+        } else {
+            false
+        };
+
+        if !handled_by_offload {
+            render_engine.pack_bytes(&pixel_buffer, &mut byte_buffer);
+            if let Err(e) = output_sink.write_pixels(&byte_buffer) {
+                error!("PixelSink write error: {}", e);
+            }
         }
 
         // Calculate and update telemetry

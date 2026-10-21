@@ -34,8 +34,12 @@ pub struct McuStatus {
 pub const HEADER_SIZE: usize = 6; // MAGIC(2) + OPCODE(1) + SEQ(1) + LEN(2)
 pub const FOOTER_SIZE: usize = 1; // CRC-8(1)
 
-/// Maximum payload supported for Arduino Uno (ATmega328P: 2KB SRAM -> max 170 pixels = 510 bytes)
-pub const MAX_PAYLOAD_LEN: usize = 512;
+/// Maximum payload supported for Arduino Uno (ATmega328P: unified single-buffer architecture -> max 300 pixels = 900 bytes)
+pub const MAX_PAYLOAD_LEN: usize = 900;
+
+/// Hardware-safe RGB byte sum budget (~260mA LED + ~40mA MCU = <300mA total) to prevent
+/// Arduino Uno 500mA PTC polyfuse / linear regulator overheating and CH340 disconnects (os error 5)
+pub const MAX_SAFE_MCU_RGB_SUM: u32 = 4_200;
 
 /// Calculate CRC-8 (Dallas/Maxim polynomial: x^8 + x^5 + x^4 + 1 => 0x31)
 #[inline]
@@ -115,12 +119,16 @@ pub struct SerialMcuSink {
     writer: Box<dyn Write + Send>,
     reader: Option<Box<dyn std::io::Read + Send>>,
     rx_buf: Vec<u8>,
+    last_status: Option<McuStatus>,
     seq: u8,
     frame_buf: Vec<u8>,
     device_path: Option<String>,
     baud_rate: u32,
     last_frame_sent: Option<std::time::Instant>,
+    last_dmx_payload: Option<[u8; 9]>,
     dropped_frames: u64,
+    is_connected: bool,
+    last_config: Option<(u16, u8, u16, u8)>,
     last_reconnect_attempt: Option<std::time::Instant>,
 }
 
@@ -131,12 +139,16 @@ impl SerialMcuSink {
             writer,
             reader: None,
             rx_buf: Vec::new(),
+            last_status: None,
             seq: 0,
             frame_buf: Vec::with_capacity(HEADER_SIZE + MAX_PAYLOAD_LEN + FOOTER_SIZE),
             device_path: None,
             baud_rate: 115_200,
             last_frame_sent: None,
+            last_dmx_payload: None,
             dropped_frames: 0,
+            is_connected: true,
+            last_config: None,
             last_reconnect_attempt: None,
         }
     }
@@ -156,27 +168,35 @@ impl SerialMcuSink {
         self.baud_rate
     }
 
-    /// Poll incoming telemetry status packet from Arduino Uno MCU (non-blocking)
-    pub fn poll_status(&mut self) -> Option<McuStatus> {
-        let reader = self.reader.as_mut()?;
-        let mut temp_buf = [0u8; 64];
-
-        // Read available non-blocking bytes from kernel buffer
-        if let Ok(n) = reader.read(&mut temp_buf) {
-            if n > 0 {
+    /// Non-blockingly drain all pending incoming bytes from kernel serial buffer and parse telemetry
+    fn drain_rx(&mut self) {
+        if let Some(ref mut reader) = self.reader {
+            let mut temp_buf = [0u8; 128];
+            while let Ok(n) = reader.read(&mut temp_buf) {
+                if n == 0 {
+                    break;
+                }
                 self.rx_buf.extend_from_slice(&temp_buf[..n]);
+                if self.rx_buf.len() > 512 {
+                    let excess = self.rx_buf.len() - 128;
+                    self.rx_buf.drain(0..excess);
+                }
             }
         }
 
-        // Search for framed packet
+        // Parse all complete status frames in rx_buf, keeping the freshest telemetry
         while self.rx_buf.len() >= HEADER_SIZE + FOOTER_SIZE {
-            // Find MAGIC_0 and MAGIC_1
             if self.rx_buf[0] != MAGIC_0 || self.rx_buf[1] != MAGIC_1 {
                 self.rx_buf.remove(0);
                 continue;
             }
 
             let len = u16::from_le_bytes([self.rx_buf[4], self.rx_buf[5]]) as usize;
+            if len > 64 {
+                // Invalid status packet length, discard false header
+                self.rx_buf.remove(0);
+                continue;
+            }
             let full_len = HEADER_SIZE + len + FOOTER_SIZE;
 
             if self.rx_buf.len() < full_len {
@@ -191,7 +211,7 @@ impl SerialMcuSink {
                     let px_cnt = u16::from_le_bytes([parsed.payload[3], parsed.payload[4]]);
                     let patt = parsed.payload[5];
                     let failsafe = parsed.payload[6] != 0;
-                    return Some(McuStatus {
+                    self.last_status = Some(McuStatus {
                         packets_received: rx_cnt,
                         crc_errors: crc_err,
                         num_pixels: px_cnt,
@@ -201,8 +221,12 @@ impl SerialMcuSink {
                 }
             }
         }
+    }
 
-        None
+    /// Poll incoming telemetry status packet from Arduino Uno MCU (non-blocking)
+    pub fn poll_status(&mut self) -> Option<McuStatus> {
+        self.drain_rx();
+        self.last_status.take()
     }
 
     /// Open serial device (e.g. `/dev/ttyACM0` or `/dev/ttyUSB0`)
@@ -261,18 +285,21 @@ impl SerialMcuSink {
         let mut sink = Self {
             writer: Box::new(file),
             reader: reader_file,
-            rx_buf: Vec::with_capacity(128),
+            rx_buf: Vec::with_capacity(256),
+            last_status: None,
             seq: 0,
             frame_buf: Vec::with_capacity(HEADER_SIZE + MAX_PAYLOAD_LEN + FOOTER_SIZE),
             device_path: Some(device_path.to_string()),
             baud_rate,
             last_frame_sent: None,
+            last_dmx_payload: None,
             dropped_frames: 0,
+            is_connected: true,
+            last_config: None,
             last_reconnect_attempt: None,
         };
 
-        // Send a heartbeat ping to initialize link
-        let _ = sink.send_heartbeat();
+        sink.drain_rx();
 
         Ok(sink)
     }
@@ -291,6 +318,7 @@ impl SerialMcuSink {
         size: u8,
     ) -> Result<(), OutputError> {
         let payload = [dimmer, r, g, b, strobe, pattern_id, audio_id, speed, size];
+        self.last_dmx_payload = Some(payload);
         self.send_packet(OP_DMX_CHANNELS, &payload)
     }
 
@@ -312,7 +340,10 @@ impl SerialMcuSink {
         failsafe_timeout_ms: u16,
         color_order: u8,
     ) -> Result<(), OutputError> {
-        let px_bytes = pixel_count.to_le_bytes();
+        let clamped_px = pixel_count.min((MAX_PAYLOAD_LEN / 3) as u16);
+        self.last_config = Some((clamped_px, failsafe_mode, failsafe_timeout_ms, color_order));
+        self.last_dmx_payload = None;
+        let px_bytes = clamped_px.to_le_bytes();
         let timeout_bytes = failsafe_timeout_ms.to_le_bytes();
         let payload = [
             px_bytes[0],
@@ -331,17 +362,63 @@ impl SerialMcuSink {
     }
 
     fn send_packet(&mut self, opcode: u8, payload: &[u8]) -> Result<(), OutputError> {
+        self.drain_rx();
         frame_packet(opcode, self.seq, payload, &mut self.frame_buf);
         self.seq = self.seq.wrapping_add(1);
 
-        write_all_with_timeout(&mut *self.writer, &self.frame_buf, std::time::Duration::from_millis(500))?;
+        write_all_with_timeout(&mut *self.writer, &self.frame_buf, std::time::Duration::from_millis(250))?;
+        self.last_frame_sent = Some(std::time::Instant::now());
         Ok(())
+    }
+
+    /// Immediately release dead serial file descriptors so Linux kernel can free `/dev/ttyUSB0`
+    fn disconnect_and_release_fd(&mut self) {
+        self.writer = Box::new(std::io::sink());
+        self.reader = None;
+        self.rx_buf.clear();
+        self.last_dmx_payload = None;
+        self.is_connected = false;
+        self.last_reconnect_attempt = Some(std::time::Instant::now());
+    }
+
+    /// Attempt to re-open the serial port after a physical disconnect and re-sync MCU config
+    #[cfg(target_os = "linux")]
+    fn try_reconnect(&mut self) -> bool {
+        let Some(configured_path) = self.device_path.clone() else {
+            return false;
+        };
+
+        let candidates = [
+            configured_path.as_str(),
+            "/dev/ttyUSB0",
+            "/dev/ttyUSB1",
+            "/dev/ttyACM0",
+        ];
+
+        for candidate in candidates {
+            if std::path::Path::new(candidate).exists() {
+                if let Ok(new_sink) = Self::open(candidate, self.baud_rate) {
+                    self.writer = new_sink.writer;
+                    self.reader = new_sink.reader;
+                    self.device_path = Some(candidate.to_string());
+                    self.rx_buf.clear();
+                    self.last_dmx_payload = None;
+                    self.is_connected = true;
+                    if let Some((px, fs, to, co)) = self.last_config {
+                        let _ = self.send_config_with_color_order(px, fs, to, co);
+                    }
+                    return true;
+                }
+            }
+        }
+        false
     }
 }
 
 fn write_all_with_timeout(writer: &mut (dyn Write + Send), mut data: &[u8], timeout: std::time::Duration) -> Result<(), OutputError> {
     let deadline = std::time::Instant::now() + timeout;
     while !data.is_empty() {
+        // Write full remaining slice in a single syscall so Linux usb-serial submits 1 URB per packet
         match writer.write(data) {
             Ok(0) => {
                 return Err(OutputError::Io("Serial write returned zero bytes".into()));
@@ -356,7 +433,7 @@ fn write_all_with_timeout(writer: &mut (dyn Write + Send), mut data: &[u8], time
                 if std::time::Instant::now() >= deadline {
                     return Err(OutputError::Io("Serial write timed out (buffer full)".into()));
                 }
-                std::thread::sleep(std::time::Duration::from_micros(500));
+                std::thread::sleep(std::time::Duration::from_micros(400));
             }
             Err(e) => {
                 return Err(OutputError::Io(format!("Serial write failed: {}", e)));
@@ -368,49 +445,188 @@ fn write_all_with_timeout(writer: &mut (dyn Write + Send), mut data: &[u8], time
 }
 
 impl PixelSink for SerialMcuSink {
-    fn write_pixels(&mut self, packed_rgb_bytes: &[u8]) -> Result<(), OutputError> {
-        if packed_rgb_bytes.len() > MAX_PAYLOAD_LEN {
-            return Err(OutputError::BufferTooSmall);
+    fn write_dmx_command(
+        &mut self,
+        dimmer: u8,
+        r: u8,
+        g: u8,
+        b: u8,
+        strobe: u8,
+        pattern_id: u8,
+        audio_id: u8,
+        speed: u8,
+        size: u8,
+    ) -> Result<bool, OutputError> {
+        self.drain_rx();
+
+        if !self.is_connected {
+            #[cfg(target_os = "linux")]
+            {
+                let should_retry = self
+                    .last_reconnect_attempt
+                    .map(|t| t.elapsed() >= std::time::Duration::from_millis(1500))
+                    .unwrap_or(true);
+                if should_retry {
+                    self.last_reconnect_attempt = Some(std::time::Instant::now());
+                    let _ = self.try_reconnect();
+                }
+            }
+            if !self.is_connected {
+                self.dropped_frames = self.dropped_frames.wrapping_add(1);
+                return Ok(true);
+            }
         }
 
-        // Throttle frame rate so baud rate bandwidth is never exceeded:
-        // Frame bytes = 6 (header) + len + 1 (footer).
-        // Target <= 85% of theoretical bandwidth to eliminate UART RX FIFO overruns on MCU.
-        let frame_bytes = HEADER_SIZE + packed_rgb_bytes.len() + FOOTER_SIZE;
-        let safe_bytes_per_sec = (self.baud_rate as f64 / 10.0) * 0.85;
-        let min_frame_sec = (frame_bytes as f64 / safe_bytes_per_sec).max(0.010);
-        let min_interval = std::time::Duration::from_secs_f64(min_frame_sec);
+        let payload = [dimmer, r, g, b, strobe, pattern_id, audio_id, speed, size];
+        let payload_changed = self.last_dmx_payload != Some(payload);
+
+        // Event-driven transmission + 250ms (4 Hz) keepalive:
+        // - When parameters change: send with a 35ms minimum interval (~28 Hz max)
+        // - When parameters are unchanged: send a 16-byte keepalive every 250ms (4 Hz)
+        let min_interval = if payload_changed {
+            std::time::Duration::from_millis(35)
+        } else {
+            std::time::Duration::from_millis(250)
+        };
 
         if let Some(last) = self.last_frame_sent {
-            let elapsed = last.elapsed();
-            if elapsed < min_interval {
-                // Physical serial line is still busy transmitting the previous frame.
-                // In real-time lighting control, DROP intermediate frames rather than
-                // stalling the 50 FPS daemon loop or overflowing the kernel buffer.
-                // The next loop tick will transmit the newest, freshest frame.
+            if last.elapsed() < min_interval {
+                return Ok(true);
+            }
+        }
+
+        frame_packet(OP_DMX_CHANNELS, self.seq, &payload, &mut self.frame_buf);
+        self.seq = self.seq.wrapping_add(1);
+
+        match self.writer.write(&self.frame_buf) {
+            Ok(0) => {
+                self.dropped_frames = self.dropped_frames.wrapping_add(1);
+                Ok(true)
+            }
+            Ok(n) => {
+                if n < self.frame_buf.len() {
+                    if let Err(e) = write_all_with_timeout(
+                        &mut *self.writer,
+                        &self.frame_buf[n..],
+                        std::time::Duration::from_millis(150),
+                    ) {
+                        self.disconnect_and_release_fd();
+                        return Err(e);
+                    }
+                } else {
+                    let _ = self.writer.flush();
+                }
+                self.last_dmx_payload = Some(payload);
+                self.last_frame_sent = Some(std::time::Instant::now());
+                Ok(true)
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                self.dropped_frames = self.dropped_frames.wrapping_add(1);
+                Ok(true)
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => {
+                self.dropped_frames = self.dropped_frames.wrapping_add(1);
+                Ok(true)
+            }
+            Err(e) => {
+                self.disconnect_and_release_fd();
+                Err(OutputError::Io(format!("Serial write failed: {}", e)))
+            }
+        }
+    }
+
+    fn write_pixels(&mut self, packed_rgb_bytes: &[u8]) -> Result<(), OutputError> {
+        // 1. Always drain incoming serial RX bytes so kernel tty & CH340 IN buffers never overflow
+        self.drain_rx();
+        self.last_dmx_payload = None;
+
+        // 2. If currently disconnected after an I/O error, periodically attempt self-healing reconnect
+        if !self.is_connected {
+            #[cfg(target_os = "linux")]
+            {
+                let should_retry = self
+                    .last_reconnect_attempt
+                    .map(|t| t.elapsed() >= std::time::Duration::from_millis(1500))
+                    .unwrap_or(true);
+                if should_retry {
+                    self.last_reconnect_attempt = Some(std::time::Instant::now());
+                    let _ = self.try_reconnect();
+                }
+            }
+            if !self.is_connected {
                 self.dropped_frames = self.dropped_frames.wrapping_add(1);
                 return Ok(());
             }
         }
 
-        frame_packet(OP_STREAM_PIXELS, self.seq, packed_rgb_bytes, &mut self.frame_buf);
+        // 3. Gracefully clamp to hardware maximum capacity (300 pixels = 900 bytes)
+        let payload = if packed_rgb_bytes.len() > MAX_PAYLOAD_LEN {
+            &packed_rgb_bytes[..MAX_PAYLOAD_LEN]
+        } else {
+            packed_rgb_bytes
+        };
+
+        // 4. Accurate hardware frame pacing:
+        //    Total frame time = UART transmission time + WS2812 bit-bang cli() time + USB/IP guard.
+        //    Prevents host from transmitting the next frame while MCU interrupts are disabled in ws2812_show().
+        let frame_bytes = HEADER_SIZE + payload.len() + FOOTER_SIZE;
+        let num_pixels = payload.len() / 3;
+        let uart_sec = (frame_bytes as f64 * 10.0) / (self.baud_rate as f64);
+        let ws2812_sec = (num_pixels as f64 * 0.000_030) + 0.001;
+        let usb_guard_sec = if self.device_path.is_some() { 0.012 } else { 0.0 };
+        let min_frame_sec = (uart_sec + ws2812_sec + usb_guard_sec).max(0.015);
+        let min_interval = std::time::Duration::from_secs_f64(min_frame_sec);
+
+        if let Some(last) = self.last_frame_sent {
+            if last.elapsed() < min_interval {
+                self.dropped_frames = self.dropped_frames.wrapping_add(1);
+                return Ok(());
+            }
+        }
+
+        // 5. Frame packet and apply hardware-safe ABL cap on physical MCU links to prevent 5V brownout (< 4.3V)
+        frame_packet(OP_STREAM_PIXELS, self.seq, payload, &mut self.frame_buf);
+        if self.device_path.is_some() && payload.len() > 0 {
+            let payload_slice = &mut self.frame_buf[HEADER_SIZE..HEADER_SIZE + payload.len()];
+            let mut total_sum: u32 = 0;
+            for &b in payload_slice.iter() {
+                total_sum += b as u32;
+            }
+            if total_sum > MAX_SAFE_MCU_RGB_SUM {
+                let scale = (MAX_SAFE_MCU_RGB_SUM * 256) / total_sum;
+                for b in payload_slice.iter_mut() {
+                    *b = ((*b as u32 * scale) >> 8) as u8;
+                }
+                let new_crc = calculate_crc8(&self.frame_buf[2..HEADER_SIZE + payload.len()]);
+                let last_idx = self.frame_buf.len() - 1;
+                self.frame_buf[last_idx] = new_crc;
+            }
+        }
         self.seq = self.seq.wrapping_add(1);
 
-        // Non-blocking write attempt: if the kernel buffer is full, drop frame immediately
-        // instead of blocking for 500ms and failing with "Serial write timed out".
+        // 6. Write packet in a single write() syscall so Linux usb-serial submits 1 URB per frame
         match self.writer.write(&self.frame_buf) {
-            Ok(n) if n == self.frame_buf.len() => {
-                let _ = self.writer.flush();
-                self.last_frame_sent = Some(std::time::Instant::now());
-                Ok(())
-            }
-            Ok(_) => {
-                // Partial write: drop frame to maintain clean packet framing
+            Ok(0) => {
                 self.dropped_frames = self.dropped_frames.wrapping_add(1);
                 Ok(())
             }
+            Ok(n) => {
+                if n < self.frame_buf.len() {
+                    if let Err(e) = write_all_with_timeout(
+                        &mut *self.writer,
+                        &self.frame_buf[n..],
+                        std::time::Duration::from_millis(150),
+                    ) {
+                        self.disconnect_and_release_fd();
+                        return Err(e);
+                    }
+                } else {
+                    let _ = self.writer.flush();
+                }
+                self.last_frame_sent = Some(std::time::Instant::now());
+                Ok(())
+            }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                // OS buffer currently full: drop frame to maintain zero latency
                 self.dropped_frames = self.dropped_frames.wrapping_add(1);
                 Ok(())
             }
@@ -419,24 +635,9 @@ impl PixelSink for SerialMcuSink {
                 Ok(())
             }
             Err(e) => {
-                // Physical I/O error (e.g. Broken pipe or device reset):
-                // If device path is configured, attempt auto-reconnect
-                #[cfg(target_os = "linux")]
-                if let Some(ref path) = self.device_path {
-                    let should_retry = self
-                        .last_reconnect_attempt
-                        .map(|t| t.elapsed() > std::time::Duration::from_secs(1))
-                        .unwrap_or(true);
-                    if should_retry {
-                        self.last_reconnect_attempt = Some(std::time::Instant::now());
-                        if let Ok(new_sink) = Self::open(path, self.baud_rate) {
-                            self.writer = new_sink.writer;
-                            self.reader = new_sink.reader;
-                            self.rx_buf.clear();
-                            return Ok(());
-                        }
-                    }
-                }
+                // Physical I/O error (e.g. os error 5 / EIO):
+                // Immediately release dead file descriptor so kernel frees /dev/ttyUSB0!
+                self.disconnect_and_release_fd();
                 Err(OutputError::Io(format!("Serial write failed: {}", e)))
             }
         }

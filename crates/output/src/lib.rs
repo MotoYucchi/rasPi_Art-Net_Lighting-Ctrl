@@ -33,6 +33,25 @@ impl std::error::Error for OutputError {}
 pub trait PixelSink: Send {
     /// Write raw RGB byte stream (already packed according to color order) to the hardware
     fn write_pixels(&mut self, packed_rgb_bytes: &[u8]) -> Result<(), OutputError>;
+
+    /// Optional hardware offload for autonomous 9-channel DMX pattern rendering (e.g. Arduino Uno MCU).
+    /// Returns `Ok(true)` if the sink handled the pattern onboard via a compact control packet
+    /// (bypassing full-strip raw pixel streaming), or `Ok(false)` if the host should call `write_pixels`.
+    #[allow(clippy::too_many_arguments)]
+    fn write_dmx_command(
+        &mut self,
+        _dimmer: u8,
+        _r: u8,
+        _g: u8,
+        _b: u8,
+        _strobe: u8,
+        _pattern_id: u8,
+        _audio_id: u8,
+        _speed: u8,
+        _size: u8,
+    ) -> Result<bool, OutputError> {
+        Ok(false)
+    }
 }
 
 /// Virtual Simulator Sink (in-memory, console or headless test)

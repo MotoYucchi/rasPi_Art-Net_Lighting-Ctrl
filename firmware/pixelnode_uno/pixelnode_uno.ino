@@ -53,10 +53,30 @@ static uint16_t link_timeout_ms = DEFAULT_TIMEOUT_MS;
 
 // Stream frame synchronization: decoupled from RX to eliminate cli() UART FIFO overruns
 static bool stream_frame_dirty = false;
+static bool dmx_frame_dirty = false;
 static uint16_t stream_frame_len = 0;
+static uint32_t last_rx_byte_us = 0;
+
+// Hardware Automatic Brightness / Current Limiter (ABL) to prevent 5V rail brownout (< 4.3V),
+// PTC polyfuse/regulator overheating, and USB CH340 disconnects (os error 5) when driving 100..300 LEDs.
+// Caps total RGB channel sum to 4200 (~260mA strip current, keeping total USB draw < 300mA continuous).
+#define PX_MAX_SAFE_RGB_SUM 4200UL
 
 // Unified single strip buffer (GRB / RGB bytes)
 static uint8_t strip_buffer[PX_MAX_PIXELS * 3];
+
+static void apply_hardware_abl(uint8_t* buf, uint16_t byte_len) {
+    uint32_t total_sum = 0;
+    for (uint16_t i = 0; i < byte_len; i++) {
+        total_sum += buf[i];
+    }
+    if (total_sum > PX_MAX_SAFE_RGB_SUM) {
+        uint16_t scale = (uint16_t)((PX_MAX_SAFE_RGB_SUM * 256UL) / total_sum);
+        for (uint16_t i = 0; i < byte_len; i++) {
+            buf[i] = (uint8_t)(((uint16_t)buf[i] * scale) >> 8);
+        }
+    }
+}
 
 // DMX channel state for standalone pattern rendering
 static struct {
@@ -168,8 +188,10 @@ static void handle_packet(const PxPacketParser* p) {
             if (stream_px > num_pixels) {
                 num_pixels = stream_px;
             }
-            for (uint16_t i = 0; i < copy_len; i++) {
-                strip_buffer[i] = p->payload[i];
+            if (p->payload != strip_buffer) {
+                for (uint16_t i = 0; i < copy_len; i++) {
+                    strip_buffer[i] = p->payload[i];
+                }
             }
             // Deactivate autonomous DMX to prevent dual-render collision
             dmx_state.has_dmx_command = false;
@@ -191,6 +213,7 @@ static void handle_packet(const PxPacketParser* p) {
                 dmx_state.speed         = p->payload[7];
                 dmx_state.size          = p->payload[8];
                 dmx_state.has_dmx_command = true;
+                dmx_frame_dirty = true;
             }
             break;
         }
@@ -205,6 +228,7 @@ static void handle_packet(const PxPacketParser* p) {
                 audio_state.is_kick    = (p->payload[5] & 0x01) ? 1 : 0;
                 audio_state.is_snare   = (p->payload[5] & 0x02) ? 1 : 0;
                 audio_state.is_hihat   = (p->payload[5] & 0x04) ? 1 : 0;
+                dmx_frame_dirty = true;
             }
             break;
         }
@@ -213,6 +237,11 @@ static void handle_packet(const PxPacketParser* p) {
             if (p->expected_len >= 5) {
                 uint16_t px = p->payload[0] | ((uint16_t)p->payload[1] << 8);
                 if (px > 0 && px <= PX_MAX_PIXELS) {
+                    if (px != num_pixels) {
+                        for (uint16_t i = 0; i < sizeof(strip_buffer); i++) {
+                            strip_buffer[i] = 0;
+                        }
+                    }
                     num_pixels = px;
                 }
                 failsafe_policy = p->payload[2];
@@ -223,7 +252,7 @@ static void handle_packet(const PxPacketParser* p) {
                 if (p->expected_len >= 6) {
                     strip_color_order = p->payload[5];
                 }
-                send_status_reply(); // Immediately acknowledge config update
+                dmx_frame_dirty = true;
             }
             break;
         }
@@ -251,20 +280,11 @@ void setup() {
 
     ws2812_init();
 
-    // Initialize packet parser
-    px_parser_init(&parser);
+    // Initialize packet parser with unified single strip buffer (Zero duplicate RAM overhead)
+    px_parser_init_with_buffer(&parser, strip_buffer, sizeof(strip_buffer));
 
-    // Send ASCII readiness banner to host with hardware reset reason
-    const char* reset_reason = "POWER_ON";
-    if (mcusr_mirror & (1 << 2)) {
-        reset_reason = "BROWNOUT (VCC < 4.3V - Power Supply Sag / Overcurrent)";
-    } else if (mcusr_mirror & (1 << 3)) {
-        reset_reason = "WATCHDOG_TIMEOUT";
-    } else if (mcusr_mirror & (1 << 1)) {
-        reset_reason = "EXTERNAL_PIN_RESET";
-    }
-    Serial.print(F("PX_READY: RESET_SRC="));
-    Serial.println(reset_reason);
+    // Note: Unsolicited Serial.print on boot is intentionally omitted to keep USB Bulk-IN
+    // completely silent during normal unidirectional operation (prevents CH340 USB/IP -EPIPE stalls).
 
     // -------------------------------------------------------------------------
     // Power-on Visual Confidence Check (400ms sequence):
@@ -309,6 +329,24 @@ void setup() {
     last_render_time = millis();
 }
 
+static void drain_serial_before_show(void) {
+    uint32_t wait_start_us = micros();
+    while (true) {
+        while (Serial.available() > 0) {
+            uint8_t byte = (uint8_t)Serial.read();
+            last_rx_byte_us = micros();
+            if (px_parser_feed_byte(&parser, byte)) {
+                handle_packet(&parser);
+            }
+        }
+        // If a control packet is mid-flight on the wire, wait up to 2.5ms for it to finish
+        // before ws2812_show() disables interrupts via cli().
+        if (parser.state == PX_STATE_WAIT_MAGIC0 || (micros() - wait_start_us) > 2500UL) {
+            break;
+        }
+    }
+}
+
 void loop() {
 #if defined(ARDUINO) && defined(__AVR__)
     // Pet the hardware watchdog
@@ -318,30 +356,43 @@ void loop() {
     // 1. Process incoming serial data stream
     while (Serial.available() > 0) {
         uint8_t byte = (uint8_t)Serial.read();
+        last_rx_byte_us = micros();
         if (px_parser_feed_byte(&parser, byte)) {
             handle_packet(&parser);
         }
     }
 
+    uint32_t quiet_us = micros() - last_rx_byte_us;
+    if (parser.state != PX_STATE_WAIT_MAGIC0 && quiet_us > 15000UL) {
+        // Auto-recover if a partial packet was truncated on the wire
+        parser.state = PX_STATE_WAIT_MAGIC0;
+    }
+
+    // UART is completely idle only when no packet is mid-parse and line has been quiet >= 200us
+    bool uart_idle = (parser.state == PX_STATE_WAIT_MAGIC0) && (Serial.available() == 0) && (quiet_us >= 200UL);
+
     uint32_t now = millis();
     float t_sec = (float)now * 0.001f;
 
-    // 2. Render streamed pixel frame ONLY during UART quiet window
-    // (Serial.available() == 0 guarantees ws2812_show()'s cli() will not cause UART RX FIFO overruns)
-    if (stream_frame_dirty && (Serial.available() == 0)) {
+    // 2. Render streamed pixel frame ONLY during confirmed UART quiet window
+    // (uart_idle guarantees ws2812_show()'s cli() will never cause UART RX FIFO overruns)
+    if (stream_frame_dirty && uart_idle) {
         stream_frame_dirty = false;
+        apply_hardware_abl(strip_buffer, stream_frame_len);
+        drain_serial_before_show();
         ws2812_show(strip_buffer, stream_frame_len);
     }
 
-    // 2. Link Timeout & Fail-safe Handling
+    // 3. Link Timeout & Fail-safe Handling
     bool link_timed_out = (now - last_packet_time) > link_timeout_ms;
-    if (link_timed_out) {
+    if (link_timed_out && uart_idle) {
         if (!in_failsafe) {
             in_failsafe = true;
             if (failsafe_policy == PX_FAILSAFE_BLACKOUT) {
                 for (uint16_t i = 0; i < num_pixels * 3; i++) {
                     strip_buffer[i] = 0;
                 }
+                drain_serial_before_show();
                 ws2812_show(strip_buffer, num_pixels * 3);
             }
         }
@@ -353,15 +404,20 @@ void loop() {
                 PxRgbColor warm_amber = {255, 120, 20};
                 px_render_pattern(8 * 8, warm_amber, 128, 128, t_sec, (PxRgbColor*)strip_buffer, num_pixels);
                 pack_render_to_strip();
+                apply_hardware_abl(strip_buffer, num_pixels * 3);
+                drain_serial_before_show();
                 ws2812_show(strip_buffer, num_pixels * 3);
             }
         }
     }
 
-    // 3. Autonomous DMX Pattern Rendering (active when dmx_command is received and not blacked out)
-    if (dmx_state.has_dmx_command) {
+    // 4. Autonomous DMX Pattern Rendering (active when dmx_command is received and not blacked out)
+    if (dmx_state.has_dmx_command && uart_idle) {
         bool is_blackout = in_failsafe && (failsafe_policy == PX_FAILSAFE_BLACKOUT);
-        if (!is_blackout && (now - last_render_time >= 20)) {
+        bool is_static = (dmx_state.pattern_ch6 < 8) && (dmx_state.strobe == 0) && (dmx_state.audio_ch7 < 8);
+        uint32_t render_interval_ms = is_static ? 250 : 30;
+        if (!is_blackout && (dmx_frame_dirty || (now - last_render_time >= render_interval_ms))) {
+            dmx_frame_dirty = false;
             last_render_time = now;
             uint8_t audio_slot = dmx_state.audio_ch7 / 8;
             if (audio_slot > 0) {
@@ -372,16 +428,15 @@ void loop() {
 
             px_apply_dimmer_and_strobe(dmx_state.master_dimmer, dmx_state.strobe, t_sec, (PxRgbColor*)strip_buffer, num_pixels);
             pack_render_to_strip();
+            apply_hardware_abl(strip_buffer, num_pixels * 3);
+            drain_serial_before_show();
             ws2812_show(strip_buffer, num_pixels * 3);
         }
     }
 
-    // 4. Periodic telemetry status reply (1 Hz) to notify host of MCU health & packet count
-    static uint32_t last_status_tx = 0;
-    if (now - last_status_tx >= 1000) {
-        last_status_tx = now;
-        send_status_reply();
-    }
+    // Note: Unsolicited periodic send_status_reply() in loop() has been removed so that
+    // normal operation is 100% unidirectional (Host -> Arduino), eliminating CH340 Bulk-IN
+    // collisions and WSL2 vhci_hcd -EPIPE resets. Status replies are sent only on OP_HEARTBEAT.
 
     // 5. Status LED indication
     if (in_failsafe) {

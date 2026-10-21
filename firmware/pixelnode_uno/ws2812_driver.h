@@ -20,7 +20,7 @@
 #include <string.h>
 
 #define WS2812_PIN 6
-#define WS2812_MAX_LEDS 170
+#define WS2812_MAX_LEDS 300
 
 #if defined(ARDUINO)
 
@@ -94,99 +94,39 @@ static inline void ws2812_init(void) {
 static inline void ws2812_show(const uint8_t* data, uint16_t len) {
     if (len == 0 || data == NULL) return;
 
-    volatile uint8_t* port = &WS2812_PORT;
-    uint8_t pin_mask = (1 << WS2812_BIT);
-    uint8_t hi_val = *port | pin_mask;
-    uint8_t lo_val = *port & ~pin_mask;
+    WS2812_DDR |= (1 << WS2812_BIT);
 
-    volatile uint16_t count = len;
-    const uint8_t* ptr = data;
-    uint8_t b = *ptr++;
+    uint8_t maskhi = (1 << WS2812_BIT) | WS2812_PORT;
+    uint8_t masklo = (~(1 << WS2812_BIT)) & WS2812_PORT;
+    volatile uint8_t* port = &WS2812_PORT;
 
     uint8_t sreg = SREG;
     cli();
 
-    asm volatile(
-        "head20:\n\t"
-        // --- Bit 7 ---
-        "st   %a[port], %[hi]\n\t"    // [2] Pin HIGH
-        "sbrc %[byte], 7\n\t"         // [1-2] Skip if bit 7 is set
-        "rjmp .+2\n\t"                // [2]
-        "st   %a[port], %[lo]\n\t"    // [2] Pin LOW (T0H = 5 cycles = 312.5ns)
-        "rjmp .+0\n\t"                // [2]
-        "rjmp .+0\n\t"                // [2]
-        "rjmp .+0\n\t"                // [2]
-        "st   %a[port], %[lo]\n\t"    // [2] Pin LOW (T1H = 13 cycles = 812.5ns)
-        // --- Bit 6 ---
-        "st   %a[port], %[hi]\n\t"
-        "sbrc %[byte], 6\n\t"
-        "rjmp .+2\n\t"
-        "st   %a[port], %[lo]\n\t"
-        "rjmp .+0\n\t"
-        "rjmp .+0\n\t"
-        "rjmp .+0\n\t"
-        "st   %a[port], %[lo]\n\t"
-        // --- Bit 5 ---
-        "st   %a[port], %[hi]\n\t"
-        "sbrc %[byte], 5\n\t"
-        "rjmp .+2\n\t"
-        "st   %a[port], %[lo]\n\t"
-        "rjmp .+0\n\t"
-        "rjmp .+0\n\t"
-        "rjmp .+0\n\t"
-        "st   %a[port], %[lo]\n\t"
-        // --- Bit 4 ---
-        "st   %a[port], %[hi]\n\t"
-        "sbrc %[byte], 4\n\t"
-        "rjmp .+2\n\t"
-        "st   %a[port], %[lo]\n\t"
-        "rjmp .+0\n\t"
-        "rjmp .+0\n\t"
-        "rjmp .+0\n\t"
-        "st   %a[port], %[lo]\n\t"
-        // --- Bit 3 ---
-        "st   %a[port], %[hi]\n\t"
-        "sbrc %[byte], 3\n\t"
-        "rjmp .+2\n\t"
-        "st   %a[port], %[lo]\n\t"
-        "rjmp .+0\n\t"
-        "rjmp .+0\n\t"
-        "rjmp .+0\n\t"
-        "st   %a[port], %[lo]\n\t"
-        // --- Bit 2 ---
-        "st   %a[port], %[hi]\n\t"
-        "sbrc %[byte], 2\n\t"
-        "rjmp .+2\n\t"
-        "st   %a[port], %[lo]\n\t"
-        "rjmp .+0\n\t"
-        "rjmp .+0\n\t"
-        "rjmp .+0\n\t"
-        "st   %a[port], %[lo]\n\t"
-        // --- Bit 1 ---
-        "st   %a[port], %[hi]\n\t"
-        "sbrc %[byte], 1\n\t"
-        "rjmp .+2\n\t"
-        "st   %a[port], %[lo]\n\t"
-        "rjmp .+0\n\t"
-        "rjmp .+0\n\t"
-        "rjmp .+0\n\t"
-        "st   %a[port], %[lo]\n\t"
-        // --- Bit 0 ---
-        "st   %a[port], %[hi]\n\t"
-        "sbrc %[byte], 0\n\t"
-        "rjmp .+2\n\t"
-        "st   %a[port], %[lo]\n\t"
-        "sbiw %[count], 1\n\t"        // [2] count--
-        "ld   %[byte], %a[ptr]+\n\t"  // [2] load next byte
-        "brne head20\n\t"             // [2] loop back while count > 0
-        "st   %a[port], %[lo]\n\t"    // [2] final bit low
-        : [ptr] "+e" (ptr),
-          [count] "+w" (count),
-          [byte] "+r" (b)
-        : [port] "e" (port),
-          [hi] "r" (hi_val),
-          [lo] "r" (lo_val)
-    );
+    while (len--) {
+        uint8_t curbyte = *data++;
+        uint8_t ctr;
+        asm volatile(
+            "       ldi   %0,8       \n\t"
+            "loop%=:                 \n\t"
+            "       st    X,%3       \n\t"  // Pin HIGH [02]
+            "       rjmp  .+0        \n\t"  // 2 NOPs
+            "       sbrs  %1,7       \n\t"  // Skip if bit 7 is 1 [01/02]
+            "       st    X,%4       \n\t"  // If bit was 0: Pin LOW [02]
+            "       lsl   %1         \n\t"  // Shift bit into Carry [01]
+            "       rjmp  .+0        \n\t"  // 2 NOPs
+            "       rjmp  .+0        \n\t"  // 2 NOPs
+            "       rjmp  .+0        \n\t"  // 2 NOPs
+            "       brcc  skipone%=  \n\t"  // If bit was 0 (carry=0), skip [01/02]
+            "       st    X,%4       \n\t"  // If bit was 1: Pin LOW [02]
+            "skipone%=:              \n\t"
+            "       rjmp  .+0        \n\t"  // 2 NOPs
+            "       dec   %0         \n\t"  // Bit count-- [01]
+            "       brne  loop%=     \n\t"  // Loop back for all 8 bits [02]
+            : "=&d" (ctr)
+            : "r" (curbyte), "x" (port), "r" (maskhi), "r" (masklo)
+        );
+    }
 
     SREG = sreg;
 

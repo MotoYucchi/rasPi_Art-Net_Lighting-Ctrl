@@ -706,7 +706,16 @@ static inline void px_render_pattern(
             break;
         }
 
-        // Fallback slots 28..31
+        // Slot 28: Address Walker (Single pixel walking from 0 to count-1 for rig check)
+        case 28: {
+            size_t walk_idx = (size_t)((uint32_t)(t * 20.0f * speed_mult)) % count;
+            for (size_t i = 0; i < count; i++) {
+                out[i] = (i == walk_idx) ? base_color : (PxRgbColor){0, 0, 0};
+            }
+            break;
+        }
+
+        // Fallback slots 29..31
         default: {
             for (size_t i = 0; i < count; i++) out[i] = base_color;
             break;

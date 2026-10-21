@@ -30,9 +30,9 @@ extern "C" {
 #define PX_HEADER_SIZE 6 // MAGIC(2) + OPCODE(1) + SEQ(1) + LEN(2)
 #define PX_FOOTER_SIZE 1 // CRC-8(1)
 
-// ATmega328P constraint: Max 170 pixels = 510 bytes
-#define PX_MAX_PIXELS 170
-#define PX_MAX_PAYLOAD_LEN 512
+// ATmega328P constraint: Max 300 pixels = 900 bytes
+#define PX_MAX_PIXELS 300
+#define PX_MAX_PAYLOAD_LEN 900
 
 // Fail-safe policies
 #define PX_FAILSAFE_BLACKOUT    0
@@ -80,25 +80,45 @@ typedef struct {
     uint16_t expected_len;
     uint16_t payload_idx;
     uint8_t running_crc;
-    uint8_t payload[PX_MAX_PAYLOAD_LEN];
+    uint8_t* stream_buffer;
+    uint16_t max_payload_len;
+    uint8_t ctrl_payload[16];
+    uint8_t* payload;
+#if !defined(ARDUINO) || !defined(__AVR__)
+    uint8_t _internal_payload[PX_MAX_PAYLOAD_LEN];
+#endif
     uint32_t packets_received;
     uint32_t packets_crc_errors;
     uint32_t packets_overflow_errors;
 } PxPacketParser;
 
 /**
- * @brief Initialize parser state machine
+ * @brief Initialize parser with external unified buffer (zero duplicate RAM on AVR)
  */
-static inline void px_parser_init(PxPacketParser* p) {
+static inline void px_parser_init_with_buffer(PxPacketParser* p, uint8_t* buffer, uint16_t max_len) {
     p->state = PX_STATE_WAIT_MAGIC0;
     p->opcode = 0;
     p->seq = 0;
     p->expected_len = 0;
     p->payload_idx = 0;
     p->running_crc = 0;
+    p->stream_buffer = buffer;
+    p->max_payload_len = max_len;
+    p->payload = p->ctrl_payload;
     p->packets_received = 0;
     p->packets_crc_errors = 0;
     p->packets_overflow_errors = 0;
+}
+
+/**
+ * @brief Initialize parser state machine (defaults to internal buffer for tests)
+ */
+static inline void px_parser_init(PxPacketParser* p) {
+#if !defined(ARDUINO) || !defined(__AVR__)
+    px_parser_init_with_buffer(p, p->_internal_payload, PX_MAX_PAYLOAD_LEN);
+#else
+    px_parser_init_with_buffer(p, NULL, 0);
+#endif
 }
 
 /**
@@ -152,25 +172,38 @@ static inline bool px_parser_feed_byte(PxPacketParser* p, uint8_t byte) {
             p->payload_idx = 0;
 
             bool valid_len = (p->expected_len <= PX_MAX_PAYLOAD_LEN);
+            uint16_t active_max_len = 0;
             if (valid_len) {
                 switch (p->opcode) {
                     case PX_OP_STREAM_PIXELS:
                         valid_len = (p->expected_len % 3 == 0);
+                        p->payload = p->stream_buffer;
+                        active_max_len = p->max_payload_len;
                         break;
                     case PX_OP_DMX_CHANNELS:
                         valid_len = (p->expected_len == 9);
+                        p->payload = p->ctrl_payload;
+                        active_max_len = sizeof(p->ctrl_payload);
                         break;
                     case PX_OP_HEARTBEAT:
                         valid_len = (p->expected_len == 0);
+                        p->payload = p->ctrl_payload;
+                        active_max_len = sizeof(p->ctrl_payload);
                         break;
                     case PX_OP_CONFIG:
                         valid_len = (p->expected_len >= 5 && p->expected_len <= 6);
+                        p->payload = p->ctrl_payload;
+                        active_max_len = sizeof(p->ctrl_payload);
                         break;
                     case PX_OP_AUDIO_FEATURES:
                         valid_len = (p->expected_len == 6);
+                        p->payload = p->ctrl_payload;
+                        active_max_len = sizeof(p->ctrl_payload);
                         break;
                     case PX_OP_STATUS_REPLY:
-                        valid_len = (p->expected_len >= 7);
+                        valid_len = (p->expected_len >= 7 && p->expected_len <= sizeof(p->ctrl_payload));
+                        p->payload = p->ctrl_payload;
+                        active_max_len = sizeof(p->ctrl_payload);
                         break;
                     default:
                         valid_len = false;
@@ -178,7 +211,7 @@ static inline bool px_parser_feed_byte(PxPacketParser* p, uint8_t byte) {
                 }
             }
 
-            if (!valid_len) {
+            if (!valid_len || (p->expected_len > active_max_len && p->payload != NULL)) {
                 p->packets_overflow_errors++;
                 p->state = PX_STATE_WAIT_MAGIC0;
             } else if (p->expected_len == 0) {
@@ -190,7 +223,10 @@ static inline bool px_parser_feed_byte(PxPacketParser* p, uint8_t byte) {
         }
 
         case PX_STATE_WAIT_PAYLOAD:
-            p->payload[p->payload_idx++] = byte;
+            if (p->payload != NULL) {
+                p->payload[p->payload_idx] = byte;
+            }
+            p->payload_idx++;
             p->running_crc = px_crc8_update(p->running_crc, byte);
             if (p->payload_idx >= p->expected_len) {
                 p->state = PX_STATE_WAIT_CRC;

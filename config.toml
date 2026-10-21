@@ -1,0 +1,35 @@
+[node]
+name = "Stage-WS2811-Default"
+show_lock = false
+
+[network]
+artnet = true
+sacn = true
+bind_ip = "0.0.0.0"
+
+[failsafe]
+on_data_loss = "hold"
+hold_timeout_sec = 10
+fade_duration_sec = 3
+
+[[output]]
+id = "out1"
+driver = "serial_mcu"
+device = "/dev/ttyUSB0"
+baud_rate = 115200
+chip = "ws2811"
+color_order = "brg"
+pixels = 150
+psu_max_current_ma = 12000
+
+[[fixture]]
+output = "out1"
+pixel_range = [
+    0,
+    149,
+]
+personality = "preset_7ch"
+white_mode = "rgb_blend"
+universe_span = "per_170px"
+universe = 1
+address = 1

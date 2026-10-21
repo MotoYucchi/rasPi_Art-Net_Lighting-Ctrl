@@ -619,7 +619,16 @@ pub fn render_pattern(
             }
         }
 
-        // Slots 28..=31: Fallback / Future Reserve
+        // Slot 28: Address Walker (Single pixel walking from 0 to count-1 for rig check)
+        28 => {
+            let walk_idx = ((t * 20.0 * speed_mult.abs()) as usize) % count;
+            out.fill(RgbColor::default());
+            if let Some(px) = out.get_mut(walk_idx) {
+                *px = base_color;
+            }
+        }
+
+        // Slots 29..=31: Fallback / Future Reserve
         _ => {
             out.fill(base_color);
         }

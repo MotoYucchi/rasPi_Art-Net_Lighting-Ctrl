@@ -731,17 +731,12 @@ fn main() {
                     (args.pixels, args.color_order.clone())
                 }
             } else {
-                let px = if args.serial.is_some() && args.pixels == 300 {
-                    60 // Safe default for Arduino Uno
-                } else {
-                    args.pixels
-                };
-                (px, args.color_order.clone())
+                (args.pixels, args.color_order.clone())
             };
 
-            let pixels = if args.serial.is_some() && pixels > 170 {
-                eprintln!("Warning: Arduino Uno (ATmega328P) supports up to 170 pixels. Clamping {} to 170 pixels.", pixels);
-                170
+            let pixels = if args.serial.is_some() && pixels > 300 {
+                eprintln!("Warning: Arduino Uno (ATmega328P) supports up to 300 pixels. Clamping {} to 300 pixels.", pixels);
+                300
             } else {
                 pixels
             };
@@ -755,7 +750,8 @@ fn main() {
             };
 
             let c_order = parse_color_order(&color_order_str);
-            let engine = RenderEngine::new(c_order, 20_000);
+            let max_current_ma = if args.serial.is_some() { 330 } else { 20_000 };
+            let engine = RenderEngine::new(c_order, max_current_ma);
 
             println!("==================================================");
             println!(" Rig Check: {:?} on {} pixels (ColorOrder: {:?})", pattern_mode, pixels, c_order);
@@ -825,17 +821,37 @@ fn main() {
                     break;
                 }
 
-                if let Some(slot) = args.pattern {
+                let dmx_cmd = if let Some(slot) = args.pattern {
                     let base_rgb = args.color.as_deref().and_then(parse_rgb).unwrap_or([0, 220, 255]);
                     let base_col = RgbColor { r: base_rgb[0], g: base_rgb[1], b: base_rgb[2] };
                     let dmx_slot_val = (slot * 8).min(255);
                     engine.render_pattern(dmx_slot_val, base_col, args.speed, args.size, elapsed, &mut out_pixels);
+                    (255, base_rgb[0], base_rgb[1], base_rgb[2], 0, dmx_slot_val, 0, args.speed, args.size)
                 } else if args.mode == "color" {
                     let rgb = args.color.as_deref().and_then(parse_rgb).unwrap_or([255, 0, 0]);
                     out_pixels.fill(RgbColor { r: rgb[0], g: rgb[1], b: rgb[2] });
+                    (255, rgb[0], rgb[1], rgb[2], 0, 0, 0, 128, 128)
+                } else if args.mode == "off" || args.mode == "blackout" {
+                    out_pixels.fill(RgbColor::default());
+                    (0, 0, 0, 0, 0, 0, 0, 128, 128)
                 } else {
                     engine.render_test_pattern(pattern_mode, elapsed, &mut out_pixels);
-                }
+                    match pattern_mode {
+                        TestPatternMode::RgbwCycle => {
+                            let step = (elapsed.as_secs() % 4) as u8;
+                            let (r, g, b) = match step {
+                                0 => (255, 0, 0),
+                                1 => (0, 255, 0),
+                                2 => (0, 0, 255),
+                                _ => (255, 255, 255),
+                            };
+                            (255, r, g, b, 0, 0, 0, 128, 128)
+                        }
+                        TestPatternMode::AddressWalker => (255, 255, 255, 255, 0, 28 * 8, 0, 128, 128),
+                        TestPatternMode::PowerSoak100 => (255, 255, 255, 255, 0, 0, 0, 128, 128),
+                        TestPatternMode::HighRateStrobe40Hz => (255, 255, 255, 255, 255, 0, 0, 128, 128),
+                    }
+                };
                 engine.pack_bytes(&out_pixels, &mut byte_buffer);
 
                 #[cfg(target_os = "linux")]
@@ -847,16 +863,9 @@ fn main() {
 
                 #[cfg(target_os = "linux")]
                 if let Some(ref mut sink) = serial_sink {
-                    if let Err(e) = sink.write_pixels(&byte_buffer) {
+                    let (dim, r, g, b, strb, pat, aud, spd, sz) = dmx_cmd;
+                    if let Err(e) = sink.write_dmx_command(dim, r, g, b, strb, pat, aud, spd, sz) {
                         eprintln!("Error writing to Serial MCU: {}", e);
-                    }
-                    if frame_count % 50 == 0 {
-                        if let Some(st) = sink.poll_status() {
-                            println!(
-                                "  [MCU Status] Rx: {} frames, CRC err: {}, Pixels: {}, Failsafe: {}",
-                                st.packets_received, st.crc_errors, st.num_pixels, st.in_failsafe
-                            );
-                        }
                     }
                 }
 
