@@ -18,7 +18,7 @@ driver = "serial_mcu"
 device = "/dev/ttyUSB0"
 baud_rate = 115200
 chip = "ws2811"
-color_order = "brg"
+color_order = "grb"
 pixels = 150
 psu_max_current_ma = 12000
 

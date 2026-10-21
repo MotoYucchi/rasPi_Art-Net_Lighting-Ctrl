@@ -96,37 +96,52 @@ static inline void ws2812_show(const uint8_t* data, uint16_t len) {
 
     WS2812_DDR |= (1 << WS2812_BIT);
 
-    uint8_t maskhi = (1 << WS2812_BIT) | WS2812_PORT;
-    uint8_t masklo = (~(1 << WS2812_BIT)) & WS2812_PORT;
     volatile uint8_t* port = &WS2812_PORT;
+    uint8_t pinMask = (1 << WS2812_BIT);
+
+    volatile uint16_t i = len; // Loop counter
+    const uint8_t *ptr = data; // Pointer to next byte
+    volatile uint8_t b = *ptr++; // Current byte value
+    volatile uint8_t hi = *port | pinMask;
+    volatile uint8_t lo = *port & ~pinMask;
+    volatile uint8_t next = lo;
+    volatile uint8_t bit = 8;
 
     uint8_t sreg = SREG;
     cli();
 
-    while (len--) {
-        uint8_t curbyte = *data++;
-        uint8_t ctr;
-        asm volatile(
-            "       ldi   %0,8       \n\t"
-            "loop%=:                 \n\t"
-            "       st    X,%3       \n\t"  // Pin HIGH [02]
-            "       rjmp  .+0        \n\t"  // 2 NOPs
-            "       sbrs  %1,7       \n\t"  // Skip if bit 7 is 1 [01/02]
-            "       st    X,%4       \n\t"  // If bit was 0: Pin LOW [02]
-            "       lsl   %1         \n\t"  // Shift bit into Carry [01]
-            "       rjmp  .+0        \n\t"  // 2 NOPs
-            "       rjmp  .+0        \n\t"  // 2 NOPs
-            "       rjmp  .+0        \n\t"  // 2 NOPs
-            "       brcc  skipone%=  \n\t"  // If bit was 0 (carry=0), skip [01/02]
-            "       st    X,%4       \n\t"  // If bit was 1: Pin LOW [02]
-            "skipone%=:              \n\t"
-            "       rjmp  .+0        \n\t"  // 2 NOPs
-            "       dec   %0         \n\t"  // Bit count-- [01]
-            "       brne  loop%=     \n\t"  // Loop back for all 8 bits [02]
-            : "=&d" (ctr)
-            : "r" (curbyte), "x" (port), "r" (maskhi), "r" (masklo)
-        );
-    }
+    asm volatile(
+        "head20%=:\n\t"            // Clk  Pseudocode    (T =  0)
+        "st   %a[port],  %[hi]\n\t"// 2    PORT = hi     (T =  2)
+        "sbrc %[byte],  7\n\t"     // 1-2  if(b & 128)
+        "mov  %[next], %[hi]\n\t"  // 0-1   next = hi    (T =  4)
+        "dec  %[bit]\n\t"          // 1    bit--         (T =  5)
+        "st   %a[port],  %[next]\n\t"// 2  PORT = next   (T =  7)
+        "mov  %[next] ,  %[lo]\n\t"// 1    next = lo     (T =  8)
+        "breq nextbyte20%=\n\t"    // 1-2  if(bit == 0) (from dec above)
+        "rol  %[byte]\n\t"         // 1    b <<= 1       (T = 10)
+        "rjmp .+0\n\t"             // 2    nop nop       (T = 12)
+        "nop\n\t"                  // 1    nop           (T = 13)
+        "st   %a[port],  %[lo]\n\t"// 2    PORT = lo     (T = 15)
+        "nop\n\t"                  // 1    nop           (T = 16)
+        "rjmp .+0\n\t"             // 2    nop nop       (T = 18)
+        "rjmp head20%=\n\t"        // 2    -> head20 (next bit out)
+        "nextbyte20%=:\n\t"        //                    (T = 10)
+        "ldi  %[bit]  ,  8\n\t"    // 1    bit = 8       (T = 11)
+        "ld   %[byte] ,  %a[ptr]+\n\t"// 2 b = *ptr++    (T = 13)
+        "st   %a[port], %[lo]\n\t" // 2    PORT = lo     (T = 15)
+        "nop\n\t"                  // 1    nop           (T = 16)
+        "sbiw %[count], 1\n\t"     // 2    i--           (T = 18)
+        "brne head20%=\n\t"        // 2    if(i != 0) -> (next byte)
+        : [port] "+e"(port),
+          [byte] "+r"(b),
+          [bit] "+r"(bit),
+          [next] "+&r"(next),
+          [count] "+w"(i)
+        : [ptr] "e"(ptr),
+          [hi] "r"(hi),
+          [lo] "r"(lo)
+    );
 
     SREG = sreg;
 

@@ -75,13 +75,16 @@ pub fn render_pattern(
     let count_f = count as f32;
 
     // Normalized parameters:
-    // Speed: 128 is center/default. >128 positive, <128 reverse.
+    // Speed: 128 is center/stop (0.0x).
+    // >128: Positive forward (128 -> 255 maps linearly to 0.0x -> +4.0x)
+    // <128: Negative reverse (128 -> 0 maps linearly to 0.0x -> -4.0x)
+    // Exactly symmetrical linear rate of acceleration in both directions.
     let speed_mult = if speed == 128 {
-        1.0
+        0.0
     } else if speed > 128 {
-        1.0 + ((speed - 128) as f32 / 127.0) * 4.0
+        ((speed - 128) as f32 / 127.0) * 4.0
     } else {
-        -(((128 - speed) as f32 / 128.0) * 4.0).max(-4.0)
+        -(((128 - speed) as f32 / 128.0) * 4.0)
     };
 
     // Size: 128 is standard width.

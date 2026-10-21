@@ -137,15 +137,17 @@ static inline void px_render_pattern(
     uint8_t slot = pattern_dmx / 8; // Slots 0..=23
     float count_f = (float)count;
 
-    // Speed normalization: 128 is center (1.0x). >128 positive, <128 reverse.
+    // Speed normalization: 128 is center/stop (0.0x).
+    // >128: Positive forward (128 -> 255 maps linearly to 0.0x -> +4.0x)
+    // <128: Negative reverse (128 -> 0 maps linearly to 0.0x -> -4.0x)
+    // Exactly symmetrical linear rate of acceleration in both directions.
     float speed_mult;
     if (speed == 128) {
-        speed_mult = 1.0f;
+        speed_mult = 0.0f;
     } else if (speed > 128) {
-        speed_mult = 1.0f + (((float)(speed - 128) / 127.0f) * 4.0f);
+        speed_mult = ((float)(speed - 128) / 127.0f) * 4.0f;
     } else {
         speed_mult = -(((float)(128 - speed) / 128.0f) * 4.0f);
-        if (speed_mult < -4.0f) speed_mult = -4.0f;
     }
 
     // Size normalization: 128 is 1.0x

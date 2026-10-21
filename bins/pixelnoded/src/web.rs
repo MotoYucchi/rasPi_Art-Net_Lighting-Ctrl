@@ -244,7 +244,7 @@ pub fn start_web_server(
                     match serde_json::from_str::<TestRequest>(&body_str) {
                         Ok(tr) => {
                             let pat = tr.pattern.unwrap_or(0);
-                            let spd = tr.speed.unwrap_or(128);
+                            let spd = tr.speed.unwrap_or(160);
                             let sz = tr.size.unwrap_or(128);
 
                             let (m_val, rgb) = match tr.mode.to_lowercase().as_str() {

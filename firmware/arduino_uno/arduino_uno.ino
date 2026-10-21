@@ -42,7 +42,7 @@ static uint8_t mcusr_mirror = 0;
 
 // Default configuration
 #define DEFAULT_PIXEL_COUNT 60
-#define DEFAULT_TIMEOUT_MS  500
+#define DEFAULT_TIMEOUT_MS  1500
 #define PIN_STATUS_LED      13
 
 // Static parser and unified buffer model (saves 510 bytes SRAM)
@@ -94,7 +94,7 @@ static struct {
     0,               // strobe open
     0,               // pattern 0 (static)
     0,               // audio 0 (bypass)
-    128,             // speed 1.0x
+    160,             // speed 1.0x forward (128 is stop)
     128,             // size 1.0x
     false
 };

@@ -403,7 +403,7 @@ address = 1
         failsafe_active: AtomicBool::new(false),
         test_mode: AtomicU8::new(0),
         test_pattern: AtomicU8::new(0),
-        test_speed: AtomicU8::new(128),
+        test_speed: AtomicU8::new(160),
         test_size: AtomicU8::new(128),
         custom_rgb: [AtomicU8::new(255), AtomicU8::new(0), AtomicU8::new(0)],
         channels: RwLock::new(vec![0u8; 12]),
@@ -447,7 +447,7 @@ address = 1
     let mut active_test_mode: u8 = 0; // 0 = off (DMX), 1 = RGBW, 2 = Walker, 3 = Soak, 4 = Strobe, 5 = Color, 6 = Pattern
     let mut active_custom_color = RgbColor { r: 255, g: 0, b: 0 };
     let mut active_test_pattern: u8 = 0;
-    let mut active_test_speed: u8 = 128;
+    let mut active_test_speed: u8 = 160;
     let mut active_test_size: u8 = 128;
 
     let mut loop_count: u64 = 0;
@@ -672,6 +672,11 @@ address = 1
                     ));
                 }
                 6 => {
+                    let dmx_pattern_val = if active_test_pattern <= 31 {
+                        active_test_pattern.saturating_mul(8)
+                    } else {
+                        active_test_pattern
+                    };
                     let test_cmd = RenderCommand::Preset {
                         master_dimmer: 255,
                         strobe: StrobeMode::Open,
@@ -681,7 +686,7 @@ address = 1
                             b: active_custom_color.b,
                             w: 0,
                         },
-                        pattern_id: active_test_pattern,
+                        pattern_id: dmx_pattern_val,
                         audio_mode_id: 0,
                         speed: active_test_speed,
                         size: active_test_size,
@@ -694,7 +699,7 @@ address = 1
                         active_custom_color.g,
                         active_custom_color.b,
                         0,
-                        active_test_pattern,
+                        dmx_pattern_val,
                         0,
                         active_test_speed,
                         active_test_size,

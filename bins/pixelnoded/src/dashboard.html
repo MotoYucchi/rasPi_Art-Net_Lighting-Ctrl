@@ -573,18 +573,40 @@
 
         <div class="form-row">
           <div class="form-group">
-            <label>アニメーションパターンスロット</label>
+            <label>アニメーションパターンスロット (全32スロット)</label>
             <select id="rigPatternSelect" class="form-control" onchange="syncPatternIdInput()">
-              <option value="24">Slot 24: Center Ripple Pulse (多重センターリップル・外側波及)</option>
-              <option value="25">Slot 25: Dual-Tone Color Wave (2色グラデーションウェーブ)</option>
-              <option value="26">Slot 26: Directional Wave Pulse (一方向連続パルス)</option>
-              <option value="27">Slot 27: Center Inward Pull (外側から中心への集約ウェーブ)</option>
-              <option value="16">Slot 16: Rainbow Wave (フルカラーレインボー)</option>
-              <option value="17">Slot 17: Knight Rider Scanner (ナイトライダースキャン)</option>
-              <option value="18">Slot 18: Center Wipe (センターワイプ)</option>
-              <option value="8">Slot 8: Sine Wave Breath (サイン波ブレス調光)</option>
-              <option value="1">Slot 1: Single Chase (単一ピクセルチェイス)</option>
-              <option value="0">Slot 0: Static Fill (単色ベタ塗り点灯)</option>
+              <option value="0">Slot 0: Static Fill (静止点灯・全ピクセル均一)</option>
+              <option value="1">Slot 1: Single Chase (単一走行チェイス)</option>
+              <option value="2">Slot 2: Dual Meteor (交差流星・彗星)</option>
+              <option value="3">Slot 3: Gravity Bounce (重力落下バウンド)</option>
+              <option value="4">Slot 4: Newton's Cradle (衝突振り子・衝撃伝達)</option>
+              <option value="5">Slot 5: Liquid Ripple (水面干渉波・2点波紋)</option>
+              <option value="6">Slot 6: Plasma Flow (対流プラズマ・3重サイン波)</option>
+              <option value="7">Slot 7: Sand Cascade (砂時計流下・粒子堆積)</option>
+              <option value="8">Slot 8: Sine Breath (生体非対称呼吸調光)</option>
+              <option value="9">Slot 9: Heartbeat Pulse (二段心拍動・ECG波)</option>
+              <option value="10">Slot 10: Campfire (1/f 炎ゆらぎ・高温ホワイト)</option>
+              <option value="11">Slot 11: Aurora Curtain (オーロラ棚引きカーテン)</option>
+              <option value="12">Slot 12: Electric Arc (放電・突発落雷スパーク)</option>
+              <option value="13">Slot 13: Firefly Swarm (ホタル非同期明滅)</option>
+              <option value="14">Slot 14: Neural Synapse (神経伝播サイバーパルス)</option>
+              <option value="15">Slot 15: Jellyfish (深海クラゲ遊泳・発光生物)</option>
+              <option value="16">Slot 16: Rainbow Flow (全スペクトル回転・フルカラー)</option>
+              <option value="17">Slot 17: Knight Rider (残光スキャナー・往復ビーム)</option>
+              <option value="18">Slot 18: Center Wipe (中央開閉カーテンワイプ)</option>
+              <option value="19">Slot 19: Strobe Matrix (走査線錯視点滅)</option>
+              <option value="20">Slot 20: Diamond Sparkle (星屑キラめき・ジュエリー)</option>
+              <option value="21">Slot 21: Sawtooth Run (ノコギリ波推進・リニアコンベア)</option>
+              <option value="22">Slot 22: Matrix Rain (デジタル雨だれ・コードフォール)</option>
+              <option value="23">Slot 23: Moiré Grid (干渉縞モアレ・対向グリッド)</option>
+              <option value="24" selected>Slot 24: Center Ripple Pulse (多重センターリップル・外側波及)</option>
+              <option value="25">Slot 25: Dual-Tone Wave (2色ツートーン波・混色グラデーション)</option>
+              <option value="26">Slot 26: Directional Wave (一方向パルス流・連続射出)</option>
+              <option value="27">Slot 27: Center Inward Pull (外側集約インワード・中心消滅)</option>
+              <option value="28">Slot 28: Address Walker (アドレス順次走査点検・配線チェック)</option>
+              <option value="29">Slot 29: Reserved 29 (将来拡張用予約 / フォールバック)</option>
+              <option value="30">Slot 30: Reserved 30 (将来拡張用予約 / フォールバック)</option>
+              <option value="31">Slot 31: Reserved 31 (将来拡張用予約 / フォールバック)</option>
             </select>
           </div>
           <div class="form-group">
@@ -595,10 +617,10 @@
 
         <div class="form-row">
           <div class="form-group">
-            <label>再生速度 (Speed: 0〜255 / 128=等倍正方向, 192=等倍逆方向)</label>
+            <label>再生速度 (Speed: 0〜255 / 128=停止(0.0x), 右側129〜255=正方向加速, 左側127〜0=逆方向加速)</label>
             <div class="slider-row">
-              <input type="range" id="rigSpeedSlider" min="0" max="255" value="128" oninput="updateSpeedLabel(this.value)">
-              <span class="slider-val" id="lblRigSpeed">128</span>
+              <input type="range" id="rigSpeedSlider" min="0" max="255" value="160" oninput="updateSpeedLabel(this.value)">
+              <span class="slider-val" id="lblRigSpeed">160 (+1.0x 正方向)</span>
             </div>
           </div>
           <div class="form-group">
@@ -1037,11 +1059,24 @@
     }
 
     function updateSpeedLabel(val) {
-      document.getElementById('lblRigSpeed').textContent = val;
+      val = parseInt(val, 10);
+      let text = `${val}`;
+      if (val === 128) {
+        text += ' (停止 0.0x)';
+      } else if (val > 128) {
+        const mult = ((val - 128) / 127.0 * 4.0).toFixed(2);
+        text += ` (+${mult}x 正方向)`;
+      } else {
+        const mult = ((128 - val) / 128.0 * 4.0).toFixed(2);
+        text += ` (-${mult}x 逆方向)`;
+      }
+      document.getElementById('lblRigSpeed').textContent = text;
     }
 
     function updateSizeLabel(val) {
-      document.getElementById('lblRigSize').textContent = val;
+      val = parseInt(val, 10);
+      const mult = (val / 128.0).toFixed(2);
+      document.getElementById('lblRigSize').textContent = `${val} (${mult}x)`;
     }
 
     function setPatternColorHex(hex) {
@@ -1054,7 +1089,7 @@
         return;
       }
       const pat = parseInt(document.getElementById('rigCustomSlot').value) || 0;
-      const spd = parseInt(document.getElementById('rigSpeedSlider').value) || 128;
+      const spd = parseInt(document.getElementById('rigSpeedSlider').value) || 160;
       const sz = parseInt(document.getElementById('rigSizeSlider').value) || 128;
       const hex = document.getElementById('patternColorInput').value;
       const r = parseInt(hex.substr(1, 2), 16);

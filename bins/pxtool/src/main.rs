@@ -147,8 +147,8 @@ struct TestArgs {
     #[arg(long)]
     pattern: Option<u8>,
 
-    /// Pattern animation speed (0..255, default: 128 = 1.0x)
-    #[arg(long, default_value_t = 128)]
+    /// Pattern animation speed (0..255, 128 = 0.0x stop, 160 = +1.0x forward, 96 = -1.0x reverse)
+    #[arg(long, default_value_t = 160)]
     speed: u8,
 
     /// Pattern animation size/wavelength (0..255, default: 128 = 1.0x)
